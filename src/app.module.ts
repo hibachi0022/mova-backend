@@ -1,13 +1,18 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
-import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import {
+  ThrottlerGuard,
+  ThrottlerModule,
+} from '@nestjs/throttler';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AuthController } from './auth/auth.controller';
 import { AuthGuard } from './auth/auth.guard';
 import { AuthService } from './auth/auth.service';
 import { LoginService } from './auth/login.service';
+import { PasswordResetController } from './auth/password-reset.controller';
+import { PasswordResetService } from './auth/password-reset.service';
 import { ResendController } from './auth/resend.controller';
 import { ResendService } from './auth/resend.service';
 import { SessionController } from './auth/session.controller';
@@ -33,6 +38,7 @@ import { SupabaseService } from './supabase/supabase.service';
     AuthController,
     SessionController,
     ResendController,
+    PasswordResetController,
   ],
   providers: [
     AppService,
@@ -42,6 +48,7 @@ import { SupabaseService } from './supabase/supabase.service';
     VerificationService,
     SessionService,
     ResendService,
+    PasswordResetService,
     AuthGuard,
     {
       provide: APP_GUARD,
