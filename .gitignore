@@ -8,3 +8,10 @@ coverage/
 .env
 .env.*
 !.env.example
+
+# Local credentials and authentication responses
+signup-test.json
+verify-test.json
+verify-response.json
+login-test.json
+login-response.json

@@ -6,28 +6,40 @@ import { createClient } from '@supabase/supabase-js';
 export class SupabaseService {
   private readonly url: string;
   private readonly publishableKey: string;
+  private readonly secretKey: string;
 
   constructor(private readonly config: ConfigService) {
     this.url = this.config.getOrThrow<string>('SUPABASE_URL');
     this.publishableKey = this.config.getOrThrow<string>(
       'SUPABASE_PUBLISHABLE_KEY',
     );
+    this.secretKey = this.config.getOrThrow<string>(
+      'SUPABASE_SECRET_KEY',
+    );
 
-    const parsedUrl = new URL(this.url);
-
-    if (parsedUrl.protocol !== 'https:') {
+    if (new URL(this.url).protocol !== 'https:') {
       throw new Error('SUPABASE_URL must use HTTPS.');
     }
 
     if (!this.publishableKey.startsWith('sb_publishable_')) {
-      throw new Error(
-        'Set SUPABASE_PUBLISHABLE_KEY to your Supabase publishable key.',
-      );
+      throw new Error('Set a valid Supabase publishable key.');
+    }
+
+    if (!this.secretKey.startsWith('sb_secret_')) {
+      throw new Error('Set a valid Supabase secret key.');
     }
   }
 
   createClient() {
-    return createClient(this.url, this.publishableKey, {
+    return this.buildClient(this.publishableKey);
+  }
+
+  createAdminClient() {
+    return this.buildClient(this.secretKey);
+  }
+
+  private buildClient(key: string) {
+    return createClient(this.url, key, {
       auth: {
         persistSession: false,
         autoRefreshToken: false,
