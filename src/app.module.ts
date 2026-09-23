@@ -18,10 +18,13 @@ import { ResendService } from './auth/resend.service';
 import { SessionController } from './auth/session.controller';
 import { SessionService } from './auth/session.service';
 import { VerificationService } from './auth/verification.service';
+import { FriendsController } from './friends/friends.controller';
+import { FriendsService } from './friends/friends.service';
 import { AccountService } from './me/account.service';
 import { CredentialService } from './me/credential.service';
 import { MeController } from './me/me.controller';
 import { ProfileService } from './me/profile.service';
+import { SocialService } from './me/social.service';
 import { SupabaseService } from './supabase/supabase.service';
 
 @Module({
@@ -44,11 +47,14 @@ import { SupabaseService } from './supabase/supabase.service';
     ResendController,
     PasswordResetController,
     MeController,
+    FriendsController,
   ],
   providers: [
     AppService,
     SupabaseService,
     ProfileService,
+    SocialService,
+    FriendsService,
     CredentialService,
     AccountService,
     AuthService,

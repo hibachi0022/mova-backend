@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Delete,
+  Get,
   Header,
   HttpCode,
   HttpStatus,
@@ -17,8 +18,10 @@ import { AccountService } from './account.service';
 import { CredentialService } from './credential.service';
 import { CredentialChangeDto } from './dto/credential-change.dto';
 import { DeleteAccountDto } from './dto/delete-account.dto';
+import { SocialSettingsDto } from './dto/social-settings.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { ProfileService } from './profile.service';
+import { SocialService } from './social.service';
 
 @Controller('me')
 @UseGuards(AuthGuard)
@@ -30,6 +33,8 @@ export class MeController {
       CredentialService,
     private readonly accountService:
       AccountService,
+    private readonly socialService:
+      SocialService,
   ) {}
 
   @Patch()
@@ -45,6 +50,43 @@ export class MeController {
   ) {
     return this.profileService.updateUser(
       request.authUser,
+      input,
+    );
+  }
+
+  @Get('social-settings')
+  @Header(
+    'Cache-Control',
+    'no-store',
+  )
+  socialSettings(
+    @Req()
+    request: AuthenticatedRequest,
+  ) {
+    return this.socialService.getSettings(
+      request.authUser.id,
+    );
+  }
+
+  @Patch('social-settings')
+  @Header(
+    'Cache-Control',
+    'no-store',
+  )
+  @Throttle({
+    default: {
+      limit: 10,
+      ttl: 60_000,
+    },
+  })
+  updateSocialSettings(
+    @Req()
+    request: AuthenticatedRequest,
+    @Body()
+    input: SocialSettingsDto,
+  ) {
+    return this.socialService.updateSettings(
+      request.authUser.id,
       input,
     );
   }
