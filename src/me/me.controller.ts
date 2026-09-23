@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Header,
   HttpCode,
   HttpStatus,
@@ -12,8 +13,10 @@ import {
 import { Throttle } from '@nestjs/throttler';
 import { AuthGuard } from '../auth/auth.guard';
 import type { AuthenticatedRequest } from '../auth/auth.guard';
+import { AccountService } from './account.service';
 import { CredentialService } from './credential.service';
 import { CredentialChangeDto } from './dto/credential-change.dto';
+import { DeleteAccountDto } from './dto/delete-account.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { ProfileService } from './profile.service';
 
@@ -25,6 +28,8 @@ export class MeController {
       ProfileService,
     private readonly credentialService:
       CredentialService,
+    private readonly accountService:
+      AccountService,
   ) {}
 
   @Patch()
@@ -63,6 +68,30 @@ export class MeController {
     input: CredentialChangeDto,
   ) {
     return this.credentialService.change(
+      request.authUser,
+      input,
+    );
+  }
+
+  @Delete()
+  @HttpCode(HttpStatus.OK)
+  @Header(
+    'Cache-Control',
+    'no-store',
+  )
+  @Throttle({
+    default: {
+      limit: 3,
+      ttl: 60_000,
+    },
+  })
+  deleteAccount(
+    @Req()
+    request: AuthenticatedRequest,
+    @Body()
+    input: DeleteAccountDto,
+  ) {
+    return this.accountService.deleteAccount(
       request.authUser,
       input,
     );

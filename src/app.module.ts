@@ -18,6 +18,7 @@ import { ResendService } from './auth/resend.service';
 import { SessionController } from './auth/session.controller';
 import { SessionService } from './auth/session.service';
 import { VerificationService } from './auth/verification.service';
+import { AccountService } from './me/account.service';
 import { CredentialService } from './me/credential.service';
 import { MeController } from './me/me.controller';
 import { ProfileService } from './me/profile.service';
@@ -49,6 +50,7 @@ import { SupabaseService } from './supabase/supabase.service';
     SupabaseService,
     ProfileService,
     CredentialService,
+    AccountService,
     AuthService,
     LoginService,
     VerificationService,
