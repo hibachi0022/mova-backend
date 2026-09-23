@@ -26,6 +26,8 @@ import { MeController } from './me/me.controller';
 import { PaymentRecipientsService } from './me/payment-recipients.service';
 import { ProfileService } from './me/profile.service';
 import { SocialService } from './me/social.service';
+import { OutingsController } from './outings/outings.controller';
+import { OutingsService } from './outings/outings.service';
 import { SupabaseService } from './supabase/supabase.service';
 
 @Module({
@@ -49,6 +51,7 @@ import { SupabaseService } from './supabase/supabase.service';
     PasswordResetController,
     MeController,
     FriendsController,
+    OutingsController,
   ],
   providers: [
     AppService,
@@ -57,6 +60,7 @@ import { SupabaseService } from './supabase/supabase.service';
     SocialService,
     PaymentRecipientsService,
     FriendsService,
+    OutingsService,
     CredentialService,
     AccountService,
     AuthService,
