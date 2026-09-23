@@ -19,6 +19,7 @@ import type { AuthenticatedRequest } from '../auth/auth.guard';
 import { AddOutingGuestDto } from './dto/add-outing-guest.dto';
 import { CreateOutingDto } from './dto/create-outing.dto';
 import { OutingMemberConsentDto } from './dto/outing-member-consent.dto';
+import { OutingsRouletteService } from './outings-roulette.service';
 import { OutingsService } from './outings.service';
 
 class OutingIdParams {
@@ -32,6 +33,9 @@ export class OutingsController {
   constructor(
     private readonly outings:
       OutingsService,
+
+    private readonly roulette:
+      OutingsRouletteService,
   ) {}
 
   @Get()
@@ -187,6 +191,34 @@ export class OutingsController {
       request.authUser.id,
       params.id,
       input.optedIn,
+    );
+  }
+
+  @Post(':id/roulette')
+  @HttpCode(
+    HttpStatus.OK,
+  )
+  @Header(
+    'Cache-Control',
+    'no-store',
+  )
+  @Throttle({
+    default: {
+      limit: 10,
+      ttl: 60_000,
+    },
+  })
+  spinRoulette(
+    @Req()
+    request:
+      AuthenticatedRequest,
+    @Param()
+    params:
+      OutingIdParams,
+  ) {
+    return this.roulette.spin(
+      request.authUser.id,
+      params.id,
     );
   }
 }

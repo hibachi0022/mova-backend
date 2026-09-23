@@ -28,6 +28,7 @@ import { ProfileService } from './me/profile.service';
 import { SocialService } from './me/social.service';
 import { InvitesController } from './outings/invites.controller';
 import { OutingsController } from './outings/outings.controller';
+import { OutingsRouletteService } from './outings/outings-roulette.service';
 import { OutingsService } from './outings/outings.service';
 import { SupabaseService } from './supabase/supabase.service';
 
@@ -63,6 +64,7 @@ import { SupabaseService } from './supabase/supabase.service';
     PaymentRecipientsService,
     FriendsService,
     OutingsService,
+    OutingsRouletteService,
     CredentialService,
     AccountService,
     AuthService,
