@@ -20,6 +20,7 @@ import { CredentialChangeDto } from './dto/credential-change.dto';
 import { DeleteAccountDto } from './dto/delete-account.dto';
 import { SocialSettingsDto } from './dto/social-settings.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
+import { PaymentRecipientsService } from './payment-recipients.service';
 import { ProfileService } from './profile.service';
 import { SocialService } from './social.service';
 
@@ -35,6 +36,8 @@ export class MeController {
       AccountService,
     private readonly socialService:
       SocialService,
+    private readonly paymentRecipientsService:
+      PaymentRecipientsService,
   ) {}
 
   @Patch()
@@ -88,6 +91,20 @@ export class MeController {
     return this.socialService.updateSettings(
       request.authUser.id,
       input,
+    );
+  }
+
+  @Get('payment-recipients')
+  @Header(
+    'Cache-Control',
+    'no-store',
+  )
+  paymentRecipients(
+    @Req()
+    request: AuthenticatedRequest,
+  ) {
+    return this.paymentRecipientsService.listRecipients(
+      request.authUser.id,
     );
   }
 

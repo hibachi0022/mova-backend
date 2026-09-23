@@ -23,6 +23,7 @@ import { FriendsService } from './friends/friends.service';
 import { AccountService } from './me/account.service';
 import { CredentialService } from './me/credential.service';
 import { MeController } from './me/me.controller';
+import { PaymentRecipientsService } from './me/payment-recipients.service';
 import { ProfileService } from './me/profile.service';
 import { SocialService } from './me/social.service';
 import { SupabaseService } from './supabase/supabase.service';
@@ -54,6 +55,7 @@ import { SupabaseService } from './supabase/supabase.service';
     SupabaseService,
     ProfileService,
     SocialService,
+    PaymentRecipientsService,
     FriendsService,
     CredentialService,
     AccountService,
