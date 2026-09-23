@@ -6,63 +6,85 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { SupabaseService } from '../supabase/supabase.service';
+import { ProfileService } from '../me/profile.service';
 import { RefreshDto } from './dto/refresh.dto';
 
 @Injectable()
 export class SessionService {
-  constructor(private readonly supabase: SupabaseService) {}
+  constructor(
+    private readonly supabase: SupabaseService,
+    private readonly profiles: ProfileService,
+  ) {}
 
   async refresh(input: RefreshDto) {
     try {
-      const client = this.supabase.createClient();
+      const client =
+        this.supabase.createClient();
 
-      const { data, error } = await client.auth.refreshSession({
-        refresh_token: input.refreshToken,
-      });
+      const { data, error } =
+        await client.auth.refreshSession({
+          refresh_token:
+            input.refreshToken,
+        });
 
       if (error) {
-        this.throwProviderError(error.status);
+        this.throwProviderError(
+          error.status,
+        );
       }
 
-      if (!data.session || !data.user) {
-        throw new UnauthorizedException('Please sign in again.');
+      if (
+        !data.session ||
+        !data.user
+      ) {
+        throw new UnauthorizedException(
+          'Please sign in again.',
+        );
       }
 
-      const displayName: unknown = data.user.user_metadata.display_name;
+      const user =
+        await this.profiles.getUser(
+          data.user,
+        );
 
       return {
-        accessToken: data.session.access_token,
-        refreshToken: data.session.refresh_token,
-        user: {
-          id: data.user.id,
-          email: data.user.email ?? '',
-          displayName:
-            typeof displayName === 'string' ? displayName : '',
-        },
+        accessToken:
+          data.session.access_token,
+        refreshToken:
+          data.session.refresh_token,
+        user,
       };
     } catch (error: unknown) {
       this.rethrow(error);
     }
   }
 
-  async logout(accessToken: string): Promise<void> {
+  async logout(
+    accessToken: string,
+  ): Promise<void> {
     try {
-      const admin = this.supabase.createAdminClient();
+      const admin =
+        this.supabase.createAdminClient();
 
-      const { error } = await admin.auth.admin.signOut(
-        accessToken,
-        'local',
-      );
+      const { error } =
+        await admin.auth.admin.signOut(
+          accessToken,
+          'local',
+        );
 
       if (error) {
-        this.throwProviderError(error.status);
+        this.throwProviderError(
+          error.status,
+        );
       }
     } catch (error: unknown) {
       this.rethrow(error);
     }
   }
 
-  private throwProviderError(status?: number): never {
+  private throwProviderError(
+    status?: number,
+  ): never {
     if (status === 429) {
       throw new HttpException(
         'Too many requests. Please try again later.',
@@ -81,7 +103,9 @@ export class SessionService {
     );
   }
 
-  private rethrow(error: unknown): never {
+  private rethrow(
+    error: unknown,
+  ): never {
     if (error instanceof HttpException) {
       throw error;
     }

@@ -7,22 +7,32 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { SupabaseService } from '../supabase/supabase.service';
+import { ProfileService } from '../me/profile.service';
 import { VerifyDto } from './dto/verify.dto';
 
 @Injectable()
 export class VerificationService {
-  private readonly logger = new Logger(VerificationService.name);
+  private readonly logger =
+    new Logger(VerificationService.name);
 
-  constructor(private readonly supabase: SupabaseService) {}
+  constructor(
+    private readonly supabase: SupabaseService,
+    private readonly profiles: ProfileService,
+  ) {}
 
   async verify(input: VerifyDto) {
-    const admin = this.supabase.createAdminClient();
+    const admin =
+      this.supabase.createAdminClient();
 
     try {
-      const { data: email, error: challengeError } = await admin.rpc(
+      const {
+        data: email,
+        error: challengeError,
+      } = await admin.rpc(
         'reserve_signup_attempt',
         {
-          p_challenge_id: input.challengeId,
+          p_challenge_id:
+            input.challengeId,
         },
       );
 
@@ -32,19 +42,24 @@ export class VerificationService {
         );
       }
 
-      if (typeof email !== 'string' || !email) {
+      if (
+        typeof email !== 'string' ||
+        !email
+      ) {
         throw new BadRequestException(
           'This verification request is invalid, expired, already used, or has no attempts remaining.',
         );
       }
 
-      const client = this.supabase.createClient();
+      const client =
+        this.supabase.createClient();
 
-      const { data, error } = await client.auth.verifyOtp({
-        email,
-        token: input.code,
-        type: 'email',
-      });
+      const { data, error } =
+        await client.auth.verifyOtp({
+          email,
+          token: input.code,
+          type: 'email',
+        });
 
       if (error) {
         if (error.status === 429) {
@@ -54,7 +69,10 @@ export class VerificationService {
           );
         }
 
-        if (!error.status || error.status >= 500) {
+        if (
+          !error.status ||
+          error.status >= 500
+        ) {
           throw new ServiceUnavailableException(
             'Unable to reach the authentication service.',
           );
@@ -65,20 +83,29 @@ export class VerificationService {
         );
       }
 
-      if (!data.session || !data.user) {
+      if (
+        !data.session ||
+        !data.user
+      ) {
         throw new ServiceUnavailableException(
           'Verification did not produce a session.',
         );
       }
 
       const session = data.session;
-      const user = data.user;
+      const authUser = data.user;
 
       try {
-        const { data: completed, error: completionError } =
-          await admin.rpc('complete_signup_challenge', {
-            p_challenge_id: input.challengeId,
-          });
+        const {
+          data: completed,
+          error: completionError,
+        } = await admin.rpc(
+          'complete_signup_challenge',
+          {
+            p_challenge_id:
+              input.challengeId,
+          },
+        );
 
         if (completionError) {
           throw new ServiceUnavailableException(
@@ -92,34 +119,44 @@ export class VerificationService {
           );
         }
       } catch (error: unknown) {
-        // Do not return a session if challenge completion failed.
+        /*
+         * Never return an authenticated session when our own challenge
+         * completion failed.
+         */
         try {
-          const { error: revokeError } = await admin.auth.admin.signOut(
-            session.access_token,
-            'local',
-          );
+          const {
+            error: revokeError,
+          } =
+            await admin.auth.admin.signOut(
+              session.access_token,
+              'local',
+            );
 
           if (revokeError) {
-            this.logger.error('Unable to revoke an undelivered session.');
+            this.logger.error(
+              'Unable to revoke an undelivered session.',
+            );
           }
         } catch {
-          this.logger.error('Session revocation service unavailable.');
+          this.logger.error(
+            'Session revocation service unavailable.',
+          );
         }
 
         throw error;
       }
 
-      const displayName: unknown = user.user_metadata.display_name;
+      const user =
+        await this.profiles.getUser(
+          authUser,
+        );
 
       return {
-        accessToken: session.access_token,
-        refreshToken: session.refresh_token,
-        user: {
-          id: user.id,
-          email: user.email ?? email,
-          displayName:
-            typeof displayName === 'string' ? displayName : '',
-        },
+        accessToken:
+          session.access_token,
+        refreshToken:
+          session.refresh_token,
+        user,
       };
     } catch (error: unknown) {
       if (error instanceof HttpException) {

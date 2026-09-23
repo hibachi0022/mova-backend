@@ -10,6 +10,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
+import { ProfileService } from '../me/profile.service';
 import { AuthGuard } from './auth.guard';
 import type { AuthenticatedRequest } from './auth.guard';
 import { AuthService } from './auth.service';
@@ -22,63 +23,92 @@ import { VerifyDto } from './dto/verify.dto';
 @Controller('auth')
 export class AuthController {
   constructor(
-    private readonly authService: AuthService,
-    private readonly verificationService: VerificationService,
-    private readonly loginService: LoginService,
+    private readonly authService:
+      AuthService,
+    private readonly verificationService:
+      VerificationService,
+    private readonly loginService:
+      LoginService,
+    private readonly profiles:
+      ProfileService,
   ) {}
 
   @Post('signup')
-  @Header('Cache-Control', 'no-store')
+  @Header(
+    'Cache-Control',
+    'no-store',
+  )
   @Throttle({
     default: {
       limit: 3,
       ttl: 60_000,
     },
   })
-  signup(@Body() input: SignupDto) {
-    return this.authService.signup(input);
+  signup(
+    @Body() input: SignupDto,
+  ) {
+    return this.authService.signup(
+      input,
+    );
   }
 
   @Post('verify')
   @HttpCode(HttpStatus.OK)
-  @Header('Cache-Control', 'no-store')
+  @Header(
+    'Cache-Control',
+    'no-store',
+  )
   @Throttle({
     default: {
       limit: 5,
       ttl: 60_000,
     },
   })
-  verify(@Body() input: VerifyDto) {
-    return this.verificationService.verify(input);
+  verify(
+    @Body() input: VerifyDto,
+  ) {
+    return this.verificationService.verify(
+      input,
+    );
   }
 
   @Post('login')
   @HttpCode(HttpStatus.OK)
-  @Header('Cache-Control', 'no-store')
+  @Header(
+    'Cache-Control',
+    'no-store',
+  )
   @Throttle({
     default: {
       limit: 5,
       ttl: 60_000,
     },
   })
-  login(@Body() input: LoginDto) {
-    return this.loginService.login(input);
+  login(
+    @Body() input: LoginDto,
+  ) {
+    return this.loginService.login(
+      input,
+    );
   }
 
   @Get('me')
   @UseGuards(AuthGuard)
-  @Header('Cache-Control', 'no-store')
-  me(@Req() request: AuthenticatedRequest) {
-    const user = request.authUser;
-    const displayName: unknown = user.user_metadata.display_name;
+  @Header(
+    'Cache-Control',
+    'no-store',
+  )
+  async me(
+    @Req()
+    request: AuthenticatedRequest,
+  ) {
+    const user =
+      await this.profiles.getUser(
+        request.authUser,
+      );
 
     return {
-      user: {
-        id: user.id,
-        email: user.email ?? '',
-        displayName:
-          typeof displayName === 'string' ? displayName : '',
-      },
+      user,
     };
   }
 }

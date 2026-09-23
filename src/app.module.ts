@@ -18,6 +18,8 @@ import { ResendService } from './auth/resend.service';
 import { SessionController } from './auth/session.controller';
 import { SessionService } from './auth/session.service';
 import { VerificationService } from './auth/verification.service';
+import { MeController } from './me/me.controller';
+import { ProfileService } from './me/profile.service';
 import { SupabaseService } from './supabase/supabase.service';
 
 @Module({
@@ -39,10 +41,12 @@ import { SupabaseService } from './supabase/supabase.service';
     SessionController,
     ResendController,
     PasswordResetController,
+    MeController,
   ],
   providers: [
     AppService,
     SupabaseService,
+    ProfileService,
     AuthService,
     LoginService,
     VerificationService,

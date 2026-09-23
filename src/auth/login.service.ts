@@ -6,20 +6,25 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { SupabaseService } from '../supabase/supabase.service';
+import { ProfileService } from '../me/profile.service';
 import { LoginDto } from './dto/login.dto';
 
 @Injectable()
 export class LoginService {
-  constructor(private readonly supabase: SupabaseService) {}
+  constructor(
+    private readonly supabase: SupabaseService,
+    private readonly profiles: ProfileService,
+  ) {}
 
   async login(input: LoginDto) {
     try {
       const client = this.supabase.createClient();
 
-      const { data, error } = await client.auth.signInWithPassword({
-        email: input.email,
-        password: input.password,
-      });
+      const { data, error } =
+        await client.auth.signInWithPassword({
+          email: input.email,
+          password: input.password,
+        });
 
       if (error) {
         if (error.status === 429) {
@@ -46,17 +51,14 @@ export class LoginService {
         );
       }
 
-      const displayName: unknown = data.user.user_metadata.display_name;
+      const user = await this.profiles.getUser(
+        data.user,
+      );
 
       return {
         accessToken: data.session.access_token,
         refreshToken: data.session.refresh_token,
-        user: {
-          id: data.user.id,
-          email: data.user.email ?? input.email,
-          displayName:
-            typeof displayName === 'string' ? displayName : '',
-        },
+        user,
       };
     } catch (error: unknown) {
       if (error instanceof HttpException) {
