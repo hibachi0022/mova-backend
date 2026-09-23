@@ -16,7 +16,9 @@ import {
 } from 'class-validator';
 import { AuthGuard } from '../auth/auth.guard';
 import type { AuthenticatedRequest } from '../auth/auth.guard';
+import { AddOutingGuestDto } from './dto/add-outing-guest.dto';
 import { CreateOutingDto } from './dto/create-outing.dto';
+import { OutingMemberConsentDto } from './dto/outing-member-consent.dto';
 import { OutingsService } from './outings.service';
 
 class OutingIdParams {
@@ -91,6 +93,100 @@ export class OutingsController {
     return this.outings.create(
       request.authUser.id,
       input,
+    );
+  }
+
+  @Post(':id/members')
+  @HttpCode(
+    HttpStatus.OK,
+  )
+  @Header(
+    'Cache-Control',
+    'no-store',
+  )
+  @Throttle({
+    default: {
+      limit: 20,
+      ttl: 60_000,
+    },
+  })
+  addGuest(
+    @Req()
+    request:
+      AuthenticatedRequest,
+    @Param()
+    params:
+      OutingIdParams,
+    @Body()
+    input:
+      AddOutingGuestDto,
+  ) {
+    return this.outings.addGuest(
+      request.authUser.id,
+      params.id,
+      input,
+    );
+  }
+
+  @Post(':id/invites')
+  @HttpCode(
+    HttpStatus.OK,
+  )
+  @Header(
+    'Cache-Control',
+    'no-store',
+  )
+  @Throttle({
+    default: {
+      limit: 10,
+      ttl: 60_000,
+    },
+  })
+  invite(
+    @Req()
+    request:
+      AuthenticatedRequest,
+    @Param()
+    params:
+      OutingIdParams,
+  ) {
+    return this.outings.createInvite(
+      request.authUser.id,
+      params.id,
+    );
+  }
+
+  @Post(
+    ':id/members/me/consent',
+  )
+  @HttpCode(
+    HttpStatus.OK,
+  )
+  @Header(
+    'Cache-Control',
+    'no-store',
+  )
+  @Throttle({
+    default: {
+      limit: 20,
+      ttl: 60_000,
+    },
+  })
+  consent(
+    @Req()
+    request:
+      AuthenticatedRequest,
+    @Param()
+    params:
+      OutingIdParams,
+    @Body()
+    input:
+      OutingMemberConsentDto,
+  ) {
+    return this.outings.setConsent(
+      request.authUser.id,
+      params.id,
+      input.optedIn,
     );
   }
 }

@@ -1,10 +1,17 @@
 import {
   BadRequestException,
+  ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
+import {
+  createHash,
+  randomBytes,
+} from 'node:crypto';
 import { SupabaseService } from '../supabase/supabase.service';
+import { AddOutingGuestDto } from './dto/add-outing-guest.dto';
 import { CreateOutingDto } from './dto/create-outing.dto';
 
 const OUTING_SELECT =
@@ -59,6 +66,15 @@ type MembershipLookupRow = {
   joined_at: string;
 };
 
+type OutingRpcResult = {
+  status?: string;
+  outingId?: string;
+  memberId?: string;
+  codeId?: string;
+  expiresAt?: string;
+  optedIn?: boolean;
+};
+
 export type OutingMemberResponse = {
   id: string;
   displayName: string;
@@ -75,6 +91,12 @@ export type OutingResponse = {
   members:
     OutingMemberResponse[];
   selectedMemberId?: string;
+};
+
+export type OutingInviteResponse = {
+  code: string;
+  expiresAt: string;
+  joinUrl: string;
 };
 
 @Injectable()
@@ -304,15 +326,455 @@ export class OutingsService {
     }
 
     if (!membership) {
-      /*
-       * Do not reveal whether an outing exists
-       * when the authenticated user is not
-       * an active member.
-       */
       throw new NotFoundException(
         'Outing not found.',
       );
     }
+
+    return this.loadOutingById(
+      outingId,
+    );
+  }
+
+  async addGuest(
+    actorId: string,
+    outingId: string,
+    input: AddOutingGuestDto,
+  ): Promise<OutingResponse> {
+    const admin =
+      this.supabase.createAdminClient();
+
+    const {
+      data,
+      error,
+    } = await admin.rpc(
+      'add_outing_guest',
+      {
+        p_actor_id:
+          actorId,
+        p_outing_id:
+          outingId,
+        p_display_name:
+          input.displayName,
+      },
+    );
+
+    if (
+      error ||
+      !data
+    ) {
+      throw new ServiceUnavailableException(
+        'Unable to add this guest right now.',
+      );
+    }
+
+    const result =
+      data as OutingRpcResult;
+
+    switch (
+      result.status
+    ) {
+      case 'added':
+        return this.get(
+          actorId,
+          outingId,
+        );
+
+      case 'invalid':
+        throw new BadRequestException(
+          'Enter a valid guest name.',
+        );
+
+      case 'not_found':
+        throw new NotFoundException(
+          'Outing not found.',
+        );
+
+      case 'forbidden':
+        throw new ForbiddenException(
+          'You do not have permission to add guests to this outing.',
+        );
+
+      case 'inactive':
+        throw new ConflictException(
+          'Guests cannot be added to this outing right now.',
+        );
+
+      default:
+        throw new ServiceUnavailableException(
+          'Unable to add this guest right now.',
+        );
+    }
+  }
+
+  async createInvite(
+    actorId: string,
+    outingId: string,
+  ): Promise<OutingInviteResponse> {
+    /*
+     * Five random bytes represented as
+     * uppercase hexadecimal gives a
+     * user-friendly 10-character code.
+     *
+     * Example:
+     * A41D8073F2
+     */
+    const code =
+      randomBytes(5)
+        .toString('hex')
+        .toUpperCase();
+
+    const codeHash =
+      this.hashInviteCode(
+        code,
+      );
+
+    const expiresAt =
+      new Date(
+        Date.now() +
+          24 *
+            60 *
+            60 *
+            1000,
+      ).toISOString();
+
+    const admin =
+      this.supabase.createAdminClient();
+
+    const {
+      data,
+      error,
+    } = await admin.rpc(
+      'create_outing_join_code',
+      {
+        p_actor_id:
+          actorId,
+        p_outing_id:
+          outingId,
+        p_code_hash:
+          codeHash,
+        p_code_hint:
+          code.slice(-4),
+        p_expires_at:
+          expiresAt,
+        p_max_uses:
+          100,
+      },
+    );
+
+    if (
+      error ||
+      !data
+    ) {
+      throw new ServiceUnavailableException(
+        'Unable to generate an invitation right now.',
+      );
+    }
+
+    const result =
+      data as OutingRpcResult;
+
+    switch (
+      result.status
+    ) {
+      case 'created':
+        return {
+          code,
+          expiresAt:
+            typeof result.expiresAt ===
+            'string'
+              ? result.expiresAt
+              : expiresAt,
+          joinUrl:
+            `mova://join?code=${encodeURIComponent(
+              code,
+            )}`,
+        };
+
+      case 'not_found':
+        throw new NotFoundException(
+          'Outing not found.',
+        );
+
+      case 'forbidden':
+        throw new ForbiddenException(
+          'You do not have permission to create invitations for this outing.',
+        );
+
+      case 'inactive':
+        throw new ConflictException(
+          'Invitations cannot be created for this outing right now.',
+        );
+
+      case 'invalid':
+        throw new BadRequestException(
+          'Unable to create this invitation.',
+        );
+
+      default:
+        throw new ServiceUnavailableException(
+          'Unable to generate an invitation right now.',
+        );
+    }
+  }
+
+  async lookupInvite(
+    code: string,
+  ): Promise<OutingResponse> {
+    const normalized =
+      this.normalizeInviteCode(
+        code,
+      );
+
+    if (
+      !/^[A-F0-9]{10}$/.test(
+        normalized,
+      )
+    ) {
+      throw new NotFoundException(
+        'Invitation not found or expired.',
+      );
+    }
+
+    const admin =
+      this.supabase.createAdminClient();
+
+    const {
+      data,
+      error,
+    } = await admin.rpc(
+      'lookup_outing_join_code',
+      {
+        p_code_hash:
+          this.hashInviteCode(
+            normalized,
+          ),
+      },
+    );
+
+    if (
+      error ||
+      !data
+    ) {
+      throw new ServiceUnavailableException(
+        'Unable to look up this invitation right now.',
+      );
+    }
+
+    const result =
+      data as OutingRpcResult;
+
+    if (
+      result.status !==
+        'ready' ||
+      typeof result.outingId !==
+        'string'
+    ) {
+      throw new NotFoundException(
+        'Invitation not found or expired.',
+      );
+    }
+
+    /*
+     * A valid invitation code acts as
+     * permission to preview the outing.
+     *
+     * Membership is still required for
+     * normal GET /outings/:id access.
+     */
+    return this.loadOutingById(
+      result.outingId,
+    );
+  }
+
+  async joinInvite(
+    userId: string,
+    code: string,
+  ): Promise<OutingResponse> {
+    const normalized =
+      this.normalizeInviteCode(
+        code,
+      );
+
+    if (
+      !/^[A-F0-9]{10}$/.test(
+        normalized,
+      )
+    ) {
+      throw new NotFoundException(
+        'Invitation not found or expired.',
+      );
+    }
+
+    const admin =
+      this.supabase.createAdminClient();
+
+    const {
+      data,
+      error,
+    } = await admin.rpc(
+      'join_outing_with_code',
+      {
+        p_code_hash:
+          this.hashInviteCode(
+            normalized,
+          ),
+        p_user_id:
+          userId,
+      },
+    );
+
+    if (
+      error ||
+      !data
+    ) {
+      throw new ServiceUnavailableException(
+        'Unable to join this outing right now.',
+      );
+    }
+
+    const result =
+      data as OutingRpcResult;
+
+    switch (
+      result.status
+    ) {
+      case 'joined':
+      case 'already_member':
+        if (
+          typeof result.outingId !==
+          'string'
+        ) {
+          throw new ServiceUnavailableException(
+            'The outing membership could not be loaded.',
+          );
+        }
+
+        return this.get(
+          userId,
+          result.outingId,
+        );
+
+      case 'blocked':
+        /*
+         * Do not reveal which user
+         * created the block.
+         */
+        throw new ConflictException(
+          'Unable to join this outing with this invitation.',
+        );
+
+      case 'inactive':
+        throw new ConflictException(
+          'This outing is not accepting new members.',
+        );
+
+      case 'invalid':
+        throw new NotFoundException(
+          'Invitation not found or expired.',
+        );
+
+      default:
+        throw new ServiceUnavailableException(
+          'Unable to join this outing right now.',
+        );
+    }
+  }
+
+  async setConsent(
+    userId: string,
+    outingId: string,
+    optedIn: boolean,
+  ): Promise<OutingResponse> {
+    const admin =
+      this.supabase.createAdminClient();
+
+    const {
+      data,
+      error,
+    } = await admin.rpc(
+      'set_outing_member_consent',
+      {
+        p_user_id:
+          userId,
+        p_outing_id:
+          outingId,
+        p_opted_in:
+          optedIn,
+      },
+    );
+
+    if (
+      error ||
+      !data
+    ) {
+      throw new ServiceUnavailableException(
+        'Unable to update payer-selection consent right now.',
+      );
+    }
+
+    const result =
+      data as OutingRpcResult;
+
+    switch (
+      result.status
+    ) {
+      case 'updated':
+        return this.get(
+          userId,
+          outingId,
+        );
+
+      case 'not_found':
+        throw new NotFoundException(
+          'Outing membership not found.',
+        );
+
+      case 'not_available':
+        throw new ConflictException(
+          'Payer selection is not available for this outing.',
+        );
+
+      case 'invalid':
+        throw new BadRequestException(
+          'Unable to update payer-selection consent.',
+        );
+
+      default:
+        throw new ServiceUnavailableException(
+          'Unable to update payer-selection consent right now.',
+        );
+    }
+  }
+
+  private normalizeInviteCode(
+    code: string,
+  ) {
+    return code
+      .trim()
+      .toUpperCase();
+  }
+
+  private hashInviteCode(
+    code: string,
+  ) {
+    return createHash(
+      'sha256',
+    )
+      .update(
+        this.normalizeInviteCode(
+          code,
+        ),
+        'utf8',
+      )
+      .digest('hex');
+  }
+
+  private async loadOutingById(
+    outingId: string,
+  ): Promise<OutingResponse> {
+    const admin =
+      this.supabase.createAdminClient();
 
     const {
       data,

@@ -26,6 +26,7 @@ import { MeController } from './me/me.controller';
 import { PaymentRecipientsService } from './me/payment-recipients.service';
 import { ProfileService } from './me/profile.service';
 import { SocialService } from './me/social.service';
+import { InvitesController } from './outings/invites.controller';
 import { OutingsController } from './outings/outings.controller';
 import { OutingsService } from './outings/outings.service';
 import { SupabaseService } from './supabase/supabase.service';
@@ -52,6 +53,7 @@ import { SupabaseService } from './supabase/supabase.service';
     MeController,
     FriendsController,
     OutingsController,
+    InvitesController,
   ],
   providers: [
     AppService,
