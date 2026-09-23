@@ -28,6 +28,8 @@ import { ProfileService } from './me/profile.service';
 import { SocialService } from './me/social.service';
 import { InvitesController } from './outings/invites.controller';
 import { OutingsController } from './outings/outings.controller';
+import { OutingsPaymentProviderService } from './outings/outings-payment-provider.service';
+import { OutingsPaymentsService } from './outings/outings-payments.service';
 import { OutingsRouletteService } from './outings/outings-roulette.service';
 import { OutingsService } from './outings/outings.service';
 import { SupabaseService } from './supabase/supabase.service';
@@ -35,13 +37,17 @@ import { SupabaseService } from './supabase/supabase.service';
 @Module({
   imports: [
     ConfigModule.forRoot({
-      isGlobal: true,
-      envFilePath: '.env',
+      isGlobal:
+        true,
+      envFilePath:
+        '.env',
     }),
     ThrottlerModule.forRoot([
       {
-        ttl: 60_000,
-        limit: 60,
+        ttl:
+          60_000,
+        limit:
+          60,
       },
     ]),
   ],
@@ -65,6 +71,8 @@ import { SupabaseService } from './supabase/supabase.service';
     FriendsService,
     OutingsService,
     OutingsRouletteService,
+    OutingsPaymentProviderService,
+    OutingsPaymentsService,
     CredentialService,
     AccountService,
     AuthService,
@@ -75,8 +83,10 @@ import { SupabaseService } from './supabase/supabase.service';
     PasswordResetService,
     AuthGuard,
     {
-      provide: APP_GUARD,
-      useClass: ThrottlerGuard,
+      provide:
+        APP_GUARD,
+      useClass:
+        ThrottlerGuard,
     },
   ],
 })

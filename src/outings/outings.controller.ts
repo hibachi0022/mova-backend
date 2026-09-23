@@ -3,6 +3,7 @@ import {
   Controller,
   Get,
   Header,
+  Headers,
   HttpCode,
   HttpStatus,
   Param,
@@ -18,7 +19,9 @@ import { AuthGuard } from '../auth/auth.guard';
 import type { AuthenticatedRequest } from '../auth/auth.guard';
 import { AddOutingGuestDto } from './dto/add-outing-guest.dto';
 import { CreateOutingDto } from './dto/create-outing.dto';
+import { OutingCheckoutDto } from './dto/outing-checkout.dto';
 import { OutingMemberConsentDto } from './dto/outing-member-consent.dto';
+import { OutingsPaymentsService } from './outings-payments.service';
 import { OutingsRouletteService } from './outings-roulette.service';
 import { OutingsService } from './outings.service';
 
@@ -36,6 +39,9 @@ export class OutingsController {
 
     private readonly roulette:
       OutingsRouletteService,
+
+    private readonly payments:
+      OutingsPaymentsService,
   ) {}
 
   @Get()
@@ -82,8 +88,10 @@ export class OutingsController {
   )
   @Throttle({
     default: {
-      limit: 10,
-      ttl: 60_000,
+      limit:
+        10,
+      ttl:
+        60_000,
     },
   })
   create(
@@ -110,8 +118,10 @@ export class OutingsController {
   )
   @Throttle({
     default: {
-      limit: 20,
-      ttl: 60_000,
+      limit:
+        20,
+      ttl:
+        60_000,
     },
   })
   addGuest(
@@ -142,8 +152,10 @@ export class OutingsController {
   )
   @Throttle({
     default: {
-      limit: 10,
-      ttl: 60_000,
+      limit:
+        10,
+      ttl:
+        60_000,
     },
   })
   invite(
@@ -172,8 +184,10 @@ export class OutingsController {
   )
   @Throttle({
     default: {
-      limit: 20,
-      ttl: 60_000,
+      limit:
+        20,
+      ttl:
+        60_000,
     },
   })
   consent(
@@ -204,8 +218,10 @@ export class OutingsController {
   )
   @Throttle({
     default: {
-      limit: 10,
-      ttl: 60_000,
+      limit:
+        10,
+      ttl:
+        60_000,
     },
   })
   spinRoulette(
@@ -219,6 +235,77 @@ export class OutingsController {
     return this.roulette.spin(
       request.authUser.id,
       params.id,
+    );
+  }
+
+  @Get(
+    ':id/payment-options',
+  )
+  @Header(
+    'Cache-Control',
+    'no-store',
+  )
+  @Throttle({
+    default: {
+      limit:
+        30,
+      ttl:
+        60_000,
+    },
+  })
+  paymentOptions(
+    @Req()
+    request:
+      AuthenticatedRequest,
+    @Param()
+    params:
+      OutingIdParams,
+  ) {
+    return this.payments.options(
+      request.authUser.id,
+      params.id,
+    );
+  }
+
+  @Post(':id/checkout')
+  @HttpCode(
+    HttpStatus.OK,
+  )
+  @Header(
+    'Cache-Control',
+    'no-store',
+  )
+  @Throttle({
+    default: {
+      limit:
+        5,
+      ttl:
+        60_000,
+    },
+  })
+  checkout(
+    @Req()
+    request:
+      AuthenticatedRequest,
+    @Param()
+    params:
+      OutingIdParams,
+    @Body()
+    input:
+      OutingCheckoutDto,
+    @Headers(
+      'idempotency-key',
+    )
+    idempotencyKey:
+      | string
+      | undefined,
+  ) {
+    return this.payments.checkout(
+      request.authUser.id,
+      request.authUser.email,
+      params.id,
+      input,
+      idempotencyKey,
     );
   }
 }
