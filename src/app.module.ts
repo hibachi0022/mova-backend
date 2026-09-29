@@ -32,6 +32,8 @@ import { OutingsPaymentProviderService } from './outings/outings-payment-provide
 import { OutingsPaymentsService } from './outings/outings-payments.service';
 import { OutingsRouletteService } from './outings/outings-roulette.service';
 import { OutingsService } from './outings/outings.service';
+import { PaystackWebhookController } from './payments/paystack-webhook.controller';
+import { PaystackWebhookService } from './payments/paystack-webhook.service';
 import { SupabaseService } from './supabase/supabase.service';
 
 @Module({
@@ -42,6 +44,7 @@ import { SupabaseService } from './supabase/supabase.service';
       envFilePath:
         '.env',
     }),
+
     ThrottlerModule.forRoot([
       {
         ttl:
@@ -51,6 +54,7 @@ import { SupabaseService } from './supabase/supabase.service';
       },
     ]),
   ],
+
   controllers: [
     AppController,
     AuthController,
@@ -61,7 +65,9 @@ import { SupabaseService } from './supabase/supabase.service';
     FriendsController,
     OutingsController,
     InvitesController,
+    PaystackWebhookController,
   ],
+
   providers: [
     AppService,
     SupabaseService,
@@ -73,6 +79,7 @@ import { SupabaseService } from './supabase/supabase.service';
     OutingsRouletteService,
     OutingsPaymentProviderService,
     OutingsPaymentsService,
+    PaystackWebhookService,
     CredentialService,
     AccountService,
     AuthService,
@@ -82,6 +89,7 @@ import { SupabaseService } from './supabase/supabase.service';
     ResendService,
     PasswordResetService,
     AuthGuard,
+
     {
       provide:
         APP_GUARD,
