@@ -20,6 +20,7 @@ import { CredentialChangeDto } from './dto/credential-change.dto';
 import { DeleteAccountDto } from './dto/delete-account.dto';
 import { SocialSettingsDto } from './dto/social-settings.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
+import { PaymentHistoryService } from './payment-history.service';
 import { PaymentRecipientsService } from './payment-recipients.service';
 import { ProfileService } from './profile.service';
 import { SocialService } from './social.service';
@@ -30,14 +31,21 @@ export class MeController {
   constructor(
     private readonly profileService:
       ProfileService,
+
     private readonly credentialService:
       CredentialService,
+
     private readonly accountService:
       AccountService,
+
     private readonly socialService:
       SocialService,
+
     private readonly paymentRecipientsService:
       PaymentRecipientsService,
+
+    private readonly paymentHistoryService:
+      PaymentHistoryService,
   ) {}
 
   @Patch()
@@ -47,9 +55,12 @@ export class MeController {
   )
   update(
     @Req()
-    request: AuthenticatedRequest,
+    request:
+      AuthenticatedRequest,
+
     @Body()
-    input: UpdateProfileDto,
+    input:
+      UpdateProfileDto,
   ) {
     return this.profileService.updateUser(
       request.authUser,
@@ -64,7 +75,8 @@ export class MeController {
   )
   socialSettings(
     @Req()
-    request: AuthenticatedRequest,
+    request:
+      AuthenticatedRequest,
   ) {
     return this.socialService.getSettings(
       request.authUser.id,
@@ -78,15 +90,20 @@ export class MeController {
   )
   @Throttle({
     default: {
-      limit: 10,
-      ttl: 60_000,
+      limit:
+        10,
+      ttl:
+        60_000,
     },
   })
   updateSocialSettings(
     @Req()
-    request: AuthenticatedRequest,
+    request:
+      AuthenticatedRequest,
+
     @Body()
-    input: SocialSettingsDto,
+    input:
+      SocialSettingsDto,
   ) {
     return this.socialService.updateSettings(
       request.authUser.id,
@@ -101,30 +118,61 @@ export class MeController {
   )
   paymentRecipients(
     @Req()
-    request: AuthenticatedRequest,
+    request:
+      AuthenticatedRequest,
   ) {
     return this.paymentRecipientsService.listRecipients(
       request.authUser.id,
     );
   }
 
-  @Post('credential-changes')
-  @HttpCode(HttpStatus.OK)
+  @Get('payment-history')
   @Header(
     'Cache-Control',
     'no-store',
   )
   @Throttle({
     default: {
-      limit: 5,
-      ttl: 60_000,
+      limit:
+        30,
+      ttl:
+        60_000,
+    },
+  })
+  paymentHistory(
+    @Req()
+    request:
+      AuthenticatedRequest,
+  ) {
+    return this.paymentHistoryService.list(
+      request.authUser.id,
+    );
+  }
+
+  @Post('credential-changes')
+  @HttpCode(
+    HttpStatus.OK,
+  )
+  @Header(
+    'Cache-Control',
+    'no-store',
+  )
+  @Throttle({
+    default: {
+      limit:
+        5,
+      ttl:
+        60_000,
     },
   })
   changeCredentials(
     @Req()
-    request: AuthenticatedRequest,
+    request:
+      AuthenticatedRequest,
+
     @Body()
-    input: CredentialChangeDto,
+    input:
+      CredentialChangeDto,
   ) {
     return this.credentialService.change(
       request.authUser,
@@ -133,22 +181,29 @@ export class MeController {
   }
 
   @Delete()
-  @HttpCode(HttpStatus.OK)
+  @HttpCode(
+    HttpStatus.OK,
+  )
   @Header(
     'Cache-Control',
     'no-store',
   )
   @Throttle({
     default: {
-      limit: 3,
-      ttl: 60_000,
+      limit:
+        3,
+      ttl:
+        60_000,
     },
   })
   deleteAccount(
     @Req()
-    request: AuthenticatedRequest,
+    request:
+      AuthenticatedRequest,
+
     @Body()
-    input: DeleteAccountDto,
+    input:
+      DeleteAccountDto,
   ) {
     return this.accountService.deleteAccount(
       request.authUser,
