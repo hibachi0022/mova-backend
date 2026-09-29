@@ -45,10 +45,47 @@ type AttachCheckoutResult = {
 type PaymentIntentRow = {
   id: string;
   status: string;
+  payer_user_id:
+    | string
+    | null;
+  amount_minor:
+    | number
+    | string;
+  currency: string;
+  method_id: string;
   checkout_url:
     | string
     | null;
   expires_at: string;
+  completed_at:
+    | string
+    | null;
+  provider_paid_at:
+    | string
+    | null;
+  created_at: string;
+};
+
+type SelectedMemberRow = {
+  user_id:
+    | string
+    | null;
+};
+
+export type OutingPaymentStatusResponse = {
+  status:
+    | 'unpaid'
+    | 'pending'
+    | 'completed';
+
+  amountMinor: number;
+  currency: string;
+
+  methodId?: string;
+
+  paidAt?: string;
+
+  isPayer: boolean;
 };
 
 @Injectable()
@@ -88,6 +125,231 @@ export class OutingsPaymentsService {
     );
   }
 
+  async status(
+    userId: string,
+    outingId: string,
+  ): Promise<
+    OutingPaymentStatusResponse
+  > {
+    /*
+     * This verifies that the caller is an active outing member before
+     * any payment information is exposed.
+     */
+    const outing =
+      await this.outings.get(
+        userId,
+        outingId,
+      );
+
+    const admin =
+      this.supabase.createAdminClient();
+
+    /*
+     * A completed intent always wins.
+     *
+     * The database guarantees only one completed payment per outing.
+     */
+    const {
+      data:
+        completedData,
+      error:
+        completedError,
+    } =
+      await admin
+        .from(
+          'outing_payment_intents',
+        )
+        .select(
+          'id, status, payer_user_id, amount_minor, currency, method_id, checkout_url, expires_at, completed_at, provider_paid_at, created_at',
+        )
+        .eq(
+          'outing_id',
+          outingId,
+        )
+        .eq(
+          'status',
+          'completed',
+        )
+        .maybeSingle();
+
+    if (completedError) {
+      throw new ServiceUnavailableException(
+        'Unable to load payment status right now.',
+      );
+    }
+
+    if (completedData) {
+      const completed =
+        completedData as
+          PaymentIntentRow;
+
+      const amountMinor =
+        this.safeMinorAmount(
+          completed.amount_minor,
+        );
+
+      const paidAt =
+        completed.provider_paid_at ??
+        completed.completed_at;
+
+      if (
+        !paidAt ||
+        !Number.isFinite(
+          Date.parse(
+            paidAt,
+          ),
+        )
+      ) {
+        throw new ServiceUnavailableException(
+          'The completed payment timestamp could not be loaded safely.',
+        );
+      }
+
+      return {
+        status:
+          'completed',
+
+        amountMinor,
+
+        currency:
+          completed.currency,
+
+        methodId:
+          completed.method_id,
+
+        paidAt:
+          new Date(
+            paidAt,
+          ).toISOString(),
+
+        isPayer:
+          completed.payer_user_id ===
+          userId,
+      };
+    }
+
+    /*
+     * No completed payment exists.
+     *
+     * Load the newest payment attempt so the frontend can distinguish
+     * an active checkout from a completely unpaid outing.
+     */
+    const {
+      data:
+        latestData,
+      error:
+        latestError,
+    } =
+      await admin
+        .from(
+          'outing_payment_intents',
+        )
+        .select(
+          'id, status, payer_user_id, amount_minor, currency, method_id, checkout_url, expires_at, completed_at, provider_paid_at, created_at',
+        )
+        .eq(
+          'outing_id',
+          outingId,
+        )
+        .order(
+          'created_at',
+          {
+            ascending:
+              false,
+          },
+        )
+        .limit(
+          1,
+        )
+        .maybeSingle();
+
+    if (latestError) {
+      throw new ServiceUnavailableException(
+        'Unable to load payment status right now.',
+      );
+    }
+
+    if (latestData) {
+      const latest =
+        latestData as
+          PaymentIntentRow;
+
+      const amountMinor =
+        this.safeMinorAmount(
+          latest.amount_minor,
+        );
+
+      const isPending =
+        latest.status ===
+          'created' ||
+        latest.status ===
+          'checkout_ready' ||
+        latest.status ===
+          'processing';
+
+      if (isPending) {
+        return {
+          status:
+            'pending',
+
+          amountMinor,
+
+          currency:
+            latest.currency,
+
+          methodId:
+            latest.method_id,
+
+          isPayer:
+            latest.payer_user_id ===
+            userId,
+        };
+      }
+
+      /*
+       * cancelled / expired / failed attempts do not mean the outing is
+       * paid. They return to the normal unpaid state so another valid
+       * checkout may be started.
+       */
+      return {
+        status:
+          'unpaid',
+
+        amountMinor:
+          outing.amountMinor,
+
+        currency:
+          outing.currency,
+
+        isPayer:
+          await this.isSelectedPayer(
+            userId,
+            outing.selectedMemberId,
+          ),
+      };
+    }
+
+    /*
+     * No payment attempt has ever been created.
+     */
+    return {
+      status:
+        'unpaid',
+
+      amountMinor:
+        outing.amountMinor,
+
+      currency:
+        outing.currency,
+
+      isPayer:
+        await this.isSelectedPayer(
+          userId,
+          outing.selectedMemberId,
+        ),
+    };
+  }
+
   async checkout(
     userId: string,
     email:
@@ -119,8 +381,7 @@ export class OutingsPaymentsService {
     }
 
     /*
-     * Membership and outing existence
-     * are verified here before we expose
+     * Membership and outing existence are verified here before we expose
      * method/provider availability.
      */
     const outing =
@@ -173,10 +434,13 @@ export class OutingsPaymentsService {
         {
           p_user_id:
             userId,
+
           p_outing_id:
             outingId,
+
           p_method_id:
             input.methodId,
+
           p_idempotency_key_hash:
             this.hashIdempotencyKey(
               cleanKey,
@@ -431,16 +695,22 @@ export class OutingsPaymentsService {
         {
           p_user_id:
             userId,
+
           p_intent_id:
             intentId,
+
           p_provider:
             checkout.provider,
+
           p_provider_checkout_id:
             checkout.providerCheckoutId,
+
           p_provider_reference:
             checkout.providerReference,
+
           p_checkout_url:
             checkout.checkoutUrl,
+
           p_expires_at:
             checkout.expiresAt,
         },
@@ -527,7 +797,7 @@ export class OutingsPaymentsService {
           'outing_payment_intents',
         )
         .select(
-          'id, status, checkout_url, expires_at',
+          'id, status, payer_user_id, amount_minor, currency, method_id, checkout_url, expires_at, completed_at, provider_paid_at, created_at',
         )
         .eq(
           'id',
@@ -542,9 +812,67 @@ export class OutingsPaymentsService {
     }
 
     return data
-      ? (data as
-          PaymentIntentRow)
+      ? (
+          data as
+            PaymentIntentRow
+        )
       : null;
+  }
+
+  private async isSelectedPayer(
+    userId: string,
+    selectedMemberId:
+      | string
+      | undefined,
+  ) {
+    if (
+      !selectedMemberId
+    ) {
+      return false;
+    }
+
+    const admin =
+      this.supabase.createAdminClient();
+
+    const {
+      data,
+      error,
+    } =
+      await admin
+        .from(
+          'outing_members',
+        )
+        .select(
+          'user_id',
+        )
+        .eq(
+          'id',
+          selectedMemberId,
+        )
+        .is(
+          'removed_at',
+          null,
+        )
+        .maybeSingle();
+
+    if (error) {
+      throw new ServiceUnavailableException(
+        'Unable to determine the selected payer right now.',
+      );
+    }
+
+    if (!data) {
+      return false;
+    }
+
+    const member =
+      data as
+        SelectedMemberRow;
+
+    return (
+      member.user_id ===
+      userId
+    );
   }
 
   private validateIdempotencyKey(

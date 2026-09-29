@@ -23,6 +23,27 @@ describe(
     const maybeSingle =
       jest.fn();
 
+    const paymentQueryEqStatus =
+      jest.fn();
+
+    const paymentQueryEqOuting =
+      jest.fn();
+
+    const paymentQuerySelect =
+      jest.fn();
+
+    const memberMaybeSingle =
+      jest.fn();
+
+    const memberIs =
+      jest.fn();
+
+    const memberEqId =
+      jest.fn();
+
+    const memberSelect =
+      jest.fn();
+
     const providerChoices =
       jest.fn();
 
@@ -38,6 +59,9 @@ describe(
     const userId =
       '11111111-1111-4111-8111-111111111111';
 
+    const otherUserId =
+      '22222222-2222-4222-8222-222222222222';
+
     const outingId =
       'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 
@@ -51,26 +75,35 @@ describe(
       OutingResponse = {
         id:
           outingId,
+
         title:
           'Dinner',
+
         location:
           'Lagos',
+
         startsAt:
           '2099-10-01T18:00:00.000Z',
+
         currency:
           'NGN',
+
         amountMinor:
           500000,
+
         members: [
           {
             id:
               memberId,
+
             displayName:
               'Samuel',
+
             optedIn:
               true,
           },
         ],
+
         selectedMemberId:
           memberId,
       };
@@ -96,8 +129,10 @@ describe(
               {
                 id:
                   'card',
+
                 label:
                   'Card',
+
                 available:
                   true,
               },
@@ -109,14 +144,100 @@ describe(
           {
             provider:
               'paystack',
+
             providerCheckoutId:
               'access_123',
+
             providerReference:
               'MOVA-reference',
+
             checkoutUrl:
               'https://checkout.paystack.com/test',
+
             expiresAt:
               '2099-10-01T18:15:00.000Z',
+          },
+        );
+
+        memberMaybeSingle.mockResolvedValue(
+          {
+            data: {
+              user_id:
+                userId,
+            },
+
+            error:
+              null,
+          },
+        );
+
+        memberIs.mockReturnValue(
+          {
+            maybeSingle:
+              memberMaybeSingle,
+          },
+        );
+
+        memberEqId.mockReturnValue(
+          {
+            is:
+              memberIs,
+          },
+        );
+
+        memberSelect.mockReturnValue(
+          {
+            eq:
+              memberEqId,
+          },
+        );
+
+        /*
+         * Default payment query:
+         *
+         * completed query -> no completed payment
+         *
+         * latest query -> no previous payment attempt
+         */
+        paymentQueryEqStatus.mockReturnValue(
+          {
+            maybeSingle:
+              jest.fn()
+                .mockResolvedValue({
+                  data:
+                    null,
+                  error:
+                    null,
+                }),
+          },
+        );
+
+        paymentQueryEqOuting.mockImplementation(
+          () => ({
+            eq:
+              paymentQueryEqStatus,
+
+            order:
+              () => ({
+                limit:
+                  () => ({
+                    maybeSingle:
+                      jest.fn()
+                        .mockResolvedValue({
+                          data:
+                            null,
+                          error:
+                            null,
+                        }),
+                  }),
+              }),
+          }),
+        );
+
+        paymentQuerySelect.mockReturnValue(
+          {
+            eq:
+              paymentQueryEqOuting,
           },
         );
 
@@ -125,42 +246,70 @@ describe(
             {
               providers: [
                 OutingsPaymentsService,
+
                 {
                   provide:
                     SupabaseService,
+
                   useValue: {
                     createAdminClient:
                       () => ({
                         rpc,
+
                         from:
-                          () => ({
-                            select:
-                              () => ({
-                                eq:
-                                  () => ({
-                                    maybeSingle,
-                                  }),
-                              }),
-                          }),
+                          (
+                            table:
+                              string,
+                          ) => {
+                            if (
+                              table ===
+                              'outing_members'
+                            ) {
+                              return {
+                                select:
+                                  memberSelect,
+                              };
+                            }
+
+                            if (
+                              table ===
+                              'outing_payment_intents'
+                            ) {
+                              return {
+                                select:
+                                  paymentQuerySelect,
+                              };
+                            }
+
+                            throw new Error(
+                              `Unexpected table ${table}`,
+                            );
+                          },
                       }),
                   },
                 },
+
                 {
                   provide:
                     OutingsService,
+
                   useValue: {
                     get:
                       outingsGet,
                   },
                 },
+
                 {
                   provide:
                     OutingsPaymentProviderService,
+
                   useValue: {
                     choices:
                       providerChoices,
+
                     availability:
                       providerAvailability,
+
                     initializeCheckout,
                   },
                 },
@@ -195,8 +344,10 @@ describe(
         {
           currency:
             'NGN',
+
           amountMinor:
             500000,
+
           hasSelectedPayer:
             true,
         },
@@ -207,12 +358,108 @@ describe(
           {
             id:
               'card',
+
             label:
               'Card',
+
             available:
               true,
           },
         ],
+      });
+    });
+
+    it('returns unpaid when no payment attempt exists', async () => {
+      await expect(
+        service.status(
+          userId,
+          outingId,
+        ),
+      ).resolves.toEqual({
+        status:
+          'unpaid',
+
+        amountMinor:
+          500000,
+
+        currency:
+          'NGN',
+
+        isPayer:
+          true,
+      });
+    });
+
+    it('returns a completed payment as the trusted final state', async () => {
+      paymentQueryEqStatus.mockReturnValue(
+        {
+          maybeSingle:
+            jest.fn()
+              .mockResolvedValue({
+                data: {
+                  id:
+                    intentId,
+
+                  status:
+                    'completed',
+
+                  payer_user_id:
+                    userId,
+
+                  amount_minor:
+                    500000,
+
+                  currency:
+                    'NGN',
+
+                  method_id:
+                    'card',
+
+                  checkout_url:
+                    null,
+
+                  expires_at:
+                    '2099-10-01T18:15:00.000Z',
+
+                  completed_at:
+                    '2026-09-29T12:00:00.000Z',
+
+                  provider_paid_at:
+                    '2026-09-29T11:59:58.000Z',
+
+                  created_at:
+                    '2026-09-29T11:55:00.000Z',
+                },
+
+                error:
+                  null,
+              }),
+        },
+      );
+
+      await expect(
+        service.status(
+          userId,
+          outingId,
+        ),
+      ).resolves.toEqual({
+        status:
+          'completed',
+
+        amountMinor:
+          500000,
+
+        currency:
+          'NGN',
+
+        methodId:
+          'card',
+
+        paidAt:
+          '2026-09-29T11:59:58.000Z',
+
+        isPayer:
+          true,
       });
     });
 
@@ -230,18 +477,25 @@ describe(
                 data: {
                   status:
                     'created',
+
                   intentId,
+
                   selectedMemberId:
                     memberId,
+
                   amountMinor:
                     500000,
+
                   currency:
                     'NGN',
+
                   methodId:
                     'card',
+
                   expiresAt:
                     '2099-10-01T18:15:00.000Z',
                 },
+
                 error:
                   null,
               },
@@ -257,12 +511,16 @@ describe(
                 data: {
                   status:
                     'ready',
+
                   intentId,
+
                   checkoutUrl:
                     'https://checkout.paystack.com/test',
+
                   expiresAt:
                     '2099-10-01T18:15:00.000Z',
                 },
+
                 error:
                   null,
               },
@@ -296,15 +554,21 @@ describe(
       ).toHaveBeenCalledWith(
         {
           intentId,
+
           outingId,
+
           email:
             'samuel@example.com',
+
           amountMinor:
             500000,
+
           currency:
             'NGN',
+
           methodId:
             'card',
+
           expiresAt:
             '2099-10-01T18:15:00.000Z',
         },
@@ -317,16 +581,22 @@ describe(
         {
           p_user_id:
             userId,
+
           p_intent_id:
             intentId,
+
           p_provider:
             'paystack',
+
           p_provider_checkout_id:
             'access_123',
+
           p_provider_reference:
             'MOVA-reference',
+
           p_checkout_url:
             'https://checkout.paystack.com/test',
+
           p_expires_at:
             '2099-10-01T18:15:00.000Z',
         },
@@ -338,20 +608,28 @@ describe(
         data: {
           status:
             'existing',
+
           intentId,
+
           paymentStatus:
             'checkout_ready',
+
           selectedMemberId:
             memberId,
+
           amountMinor:
             500000,
+
           currency:
             'NGN',
+
           methodId:
             'card',
+
           expiresAt:
             '2099-10-01T18:15:00.000Z',
         },
+
         error:
           null,
       });
@@ -361,15 +639,49 @@ describe(
           data: {
             id:
               intentId,
+
             status:
               'checkout_ready',
+
+            payer_user_id:
+              userId,
+
+            amount_minor:
+              500000,
+
+            currency:
+              'NGN',
+
+            method_id:
+              'card',
+
             checkout_url:
               'https://checkout.paystack.com/existing',
+
             expires_at:
               '2099-10-01T18:15:00.000Z',
+
+            completed_at:
+              null,
+
+            provider_paid_at:
+              null,
+
+            created_at:
+              '2099-10-01T18:00:00.000Z',
           },
+
           error:
             null,
+        },
+      );
+
+      paymentQuerySelect.mockReturnValue(
+        {
+          eq:
+            () => ({
+              maybeSingle,
+            }),
         },
       );
 
@@ -400,14 +712,15 @@ describe(
           status:
             'not_selected_payer',
         },
+
         error:
           null,
       });
 
       await expect(
         service.checkout(
-          userId,
-          'samuel@example.com',
+          otherUserId,
+          'other@example.com',
           outingId,
           {
             methodId:
@@ -418,6 +731,7 @@ describe(
       ).rejects.toMatchObject({
         status:
           403,
+
         message:
           'Only the selected payer can start this payment.',
       });
@@ -429,6 +743,7 @@ describe(
           status:
             'idempotency_conflict',
         },
+
         error:
           null,
       });
@@ -455,6 +770,7 @@ describe(
         {
           available:
             false,
+
           reason:
             'PayPal is not connected to the current payment provider yet.',
         },
@@ -496,6 +812,7 @@ describe(
       ).rejects.toMatchObject({
         status:
           400,
+
         message:
           'A valid Idempotency-Key header is required.',
       });

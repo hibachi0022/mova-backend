@@ -267,6 +267,35 @@ export class OutingsController {
     );
   }
 
+  @Get(
+    ':id/payment',
+  )
+  @Header(
+    'Cache-Control',
+    'no-store',
+  )
+  @Throttle({
+    default: {
+      limit:
+        30,
+      ttl:
+        60_000,
+    },
+  })
+  paymentStatus(
+    @Req()
+    request:
+      AuthenticatedRequest,
+    @Param()
+    params:
+      OutingIdParams,
+  ) {
+    return this.payments.status(
+      request.authUser.id,
+      params.id,
+    );
+  }
+
   @Post(':id/checkout')
   @HttpCode(
     HttpStatus.OK,
