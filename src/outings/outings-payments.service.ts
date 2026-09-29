@@ -7,28 +7,18 @@ import {
   ServiceUnavailableException,
   UnprocessableEntityException,
 } from '@nestjs/common';
-import {
-  createHash,
-} from 'node:crypto';
+import { createHash } from 'node:crypto';
 import { SupabaseService } from '../supabase/supabase.service';
-import {
-  OutingCheckoutDto,
-} from './dto/outing-checkout.dto';
-import {
-  OutingsPaymentProviderService,
-} from './outings-payment-provider.service';
-import {
-  OutingsService,
-} from './outings.service';
+import { OutingCheckoutDto } from './dto/outing-checkout.dto';
+import { OutingsPaymentProviderService } from './outings-payment-provider.service';
+import { OutingsService } from './outings.service';
 
 type PreparePaymentResult = {
   status?: string;
   intentId?: string;
   paymentStatus?: string;
-  selectedMemberId?:
-    string;
-  amountMinor?:
-    number | string;
+  selectedMemberId?: string;
+  amountMinor?: number | string;
   currency?: string;
   methodId?: string;
   expiresAt?: string;
@@ -45,24 +35,58 @@ type AttachCheckoutResult = {
 type PaymentIntentRow = {
   id: string;
   status: string;
+
   payer_user_id:
     | string
     | null;
+
   amount_minor:
     | number
     | string;
+
   currency: string;
   method_id: string;
+
   checkout_url:
     | string
     | null;
+
   expires_at: string;
+
   completed_at:
     | string
     | null;
+
   provider_paid_at:
     | string
     | null;
+
+  provider_amount_minor:
+    | number
+    | string
+    | null;
+
+  provider_currency:
+    | string
+    | null;
+
+  reconciliation_state:
+    | 'none'
+    | 'required'
+    | 'resolved';
+
+  reconciliation_reason:
+    | string
+    | null;
+
+  reconciliation_required_at:
+    | string
+    | null;
+
+  reconciliation_resolution:
+    | string
+    | null;
+
   created_at: string;
 };
 
@@ -76,7 +100,8 @@ export type OutingPaymentStatusResponse = {
   status:
     | 'unpaid'
     | 'pending'
-    | 'completed';
+    | 'completed'
+    | 'reconciliation_required';
 
   amountMinor: number;
   currency: string;
@@ -84,6 +109,8 @@ export type OutingPaymentStatusResponse = {
   methodId?: string;
 
   paidAt?: string;
+
+  reconciliationReason?: string;
 
   isPayer: boolean;
 };
@@ -111,18 +138,18 @@ export class OutingsPaymentsService {
         outingId,
       );
 
-    return this.provider.choices(
-      {
-        currency:
-          outing.currency,
-        amountMinor:
-          outing.amountMinor,
-        hasSelectedPayer:
-          Boolean(
-            outing.selectedMemberId,
-          ),
-      },
-    );
+    return this.provider.choices({
+      currency:
+        outing.currency,
+
+      amountMinor:
+        outing.amountMinor,
+
+      hasSelectedPayer:
+        Boolean(
+          outing.selectedMemberId,
+        ),
+    });
   }
 
   async status(
@@ -132,8 +159,7 @@ export class OutingsPaymentsService {
     OutingPaymentStatusResponse
   > {
     /*
-     * This verifies that the caller is an active outing member before
-     * any payment information is exposed.
+     * Verify membership before exposing payment information.
      */
     const outing =
       await this.outings.get(
@@ -145,9 +171,103 @@ export class OutingsPaymentsService {
       this.supabase.createAdminClient();
 
     /*
-     * A completed intent always wins.
+     * Reconciliation takes priority over every other state.
      *
-     * The database guarantees only one completed payment per outing.
+     * This is especially important when the outing already has one
+     * completed payment but another provider transaction also arrived.
+     */
+    const {
+      data:
+        reconciliationData,
+      error:
+        reconciliationError,
+    } =
+      await admin
+        .from(
+          'outing_payment_intents',
+        )
+        .select(
+          'id, status, payer_user_id, amount_minor, currency, method_id, checkout_url, expires_at, completed_at, provider_paid_at, provider_amount_minor, provider_currency, reconciliation_state, reconciliation_reason, reconciliation_required_at, reconciliation_resolution, created_at',
+        )
+        .eq(
+          'outing_id',
+          outingId,
+        )
+        .eq(
+          'reconciliation_state',
+          'required',
+        )
+        .order(
+          'reconciliation_required_at',
+          {
+            ascending:
+              false,
+          },
+        )
+        .limit(
+          1,
+        )
+        .maybeSingle();
+
+    if (
+      reconciliationError
+    ) {
+      throw new ServiceUnavailableException(
+        'Unable to load payment status right now.',
+      );
+    }
+
+    if (
+      reconciliationData
+    ) {
+      const reconciliation =
+        reconciliationData as
+          PaymentIntentRow;
+
+      const paidAt =
+        this.optionalTimestamp(
+          reconciliation
+            .provider_paid_at,
+        );
+
+      return {
+        status:
+          'reconciliation_required',
+
+        amountMinor:
+          this.safeMinorAmount(
+            reconciliation
+              .amount_minor,
+          ),
+
+        currency:
+          reconciliation
+            .currency,
+
+        methodId:
+          reconciliation
+            .method_id,
+
+        ...(paidAt
+          ? {
+              paidAt,
+            }
+          : {}),
+
+        reconciliationReason:
+          reconciliation
+            .reconciliation_reason ??
+          'payment_review_required',
+
+        isPayer:
+          reconciliation
+            .payer_user_id ===
+          userId,
+      };
+    }
+
+    /*
+     * A completed intent is the final normal state.
      */
     const {
       data:
@@ -160,7 +280,7 @@ export class OutingsPaymentsService {
           'outing_payment_intents',
         )
         .select(
-          'id, status, payer_user_id, amount_minor, currency, method_id, checkout_url, expires_at, completed_at, provider_paid_at, created_at',
+          'id, status, payer_user_id, amount_minor, currency, method_id, checkout_url, expires_at, completed_at, provider_paid_at, provider_amount_minor, provider_currency, reconciliation_state, reconciliation_reason, reconciliation_required_at, reconciliation_resolution, created_at',
         )
         .eq(
           'outing_id',
@@ -172,13 +292,17 @@ export class OutingsPaymentsService {
         )
         .maybeSingle();
 
-    if (completedError) {
+    if (
+      completedError
+    ) {
       throw new ServiceUnavailableException(
         'Unable to load payment status right now.',
       );
     }
 
-    if (completedData) {
+    if (
+      completedData
+    ) {
       const completed =
         completedData as
           PaymentIntentRow;
@@ -223,7 +347,8 @@ export class OutingsPaymentsService {
           ).toISOString(),
 
         isPayer:
-          completed.payer_user_id ===
+          completed
+            .payer_user_id ===
           userId,
       };
     }
@@ -231,8 +356,7 @@ export class OutingsPaymentsService {
     /*
      * No completed payment exists.
      *
-     * Load the newest payment attempt so the frontend can distinguish
-     * an active checkout from a completely unpaid outing.
+     * Inspect the newest payment attempt.
      */
     const {
       data:
@@ -245,7 +369,7 @@ export class OutingsPaymentsService {
           'outing_payment_intents',
         )
         .select(
-          'id, status, payer_user_id, amount_minor, currency, method_id, checkout_url, expires_at, completed_at, provider_paid_at, created_at',
+          'id, status, payer_user_id, amount_minor, currency, method_id, checkout_url, expires_at, completed_at, provider_paid_at, provider_amount_minor, provider_currency, reconciliation_state, reconciliation_reason, reconciliation_required_at, reconciliation_resolution, created_at',
         )
         .eq(
           'outing_id',
@@ -263,13 +387,17 @@ export class OutingsPaymentsService {
         )
         .maybeSingle();
 
-    if (latestError) {
+    if (
+      latestError
+    ) {
       throw new ServiceUnavailableException(
         'Unable to load payment status right now.',
       );
     }
 
-    if (latestData) {
+    if (
+      latestData
+    ) {
       const latest =
         latestData as
           PaymentIntentRow;
@@ -287,7 +415,9 @@ export class OutingsPaymentsService {
         latest.status ===
           'processing';
 
-      if (isPending) {
+      if (
+        isPending
+      ) {
         return {
           status:
             'pending',
@@ -301,15 +431,15 @@ export class OutingsPaymentsService {
             latest.method_id,
 
           isPayer:
-            latest.payer_user_id ===
+            latest
+              .payer_user_id ===
             userId,
         };
       }
 
       /*
-       * cancelled / expired / failed attempts do not mean the outing is
-       * paid. They return to the normal unpaid state so another valid
-       * checkout may be started.
+       * cancelled / expired / failed attempts are unpaid once any
+       * reconciliation has been resolved.
        */
       return {
         status:
@@ -329,9 +459,6 @@ export class OutingsPaymentsService {
       };
     }
 
-    /*
-     * No payment attempt has ever been created.
-     */
     return {
       status:
         'unpaid',
@@ -381,14 +508,21 @@ export class OutingsPaymentsService {
     }
 
     /*
-     * Membership and outing existence are verified here before we expose
-     * method/provider availability.
+     * Membership and outing existence are checked first.
      */
     const outing =
       await this.outings.get(
         userId,
         outingId,
       );
+
+    /*
+     * Never allow another checkout while MOVA has a verified provider
+     * payment waiting for reconciliation.
+     */
+    await this.assertNoOpenReconciliation(
+      outingId,
+    );
 
     const availability =
       this.provider.availability(
@@ -449,7 +583,31 @@ export class OutingsPaymentsService {
       );
 
     if (
-      error ||
+      error
+    ) {
+      /*
+       * Migration 008 also has a database trigger as the race-condition
+       * safety net.
+       *
+       * If reconciliation appeared between our pre-check and insert,
+       * return a controlled 409 instead of a generic 503.
+       */
+      if (
+        this.isReconciliationDatabaseError(
+          error,
+        )
+      ) {
+        throw new ConflictException(
+          'This outing has a payment that requires review before another payment can be started.',
+        );
+      }
+
+      throw new ServiceUnavailableException(
+        'Unable to prepare secure checkout right now.',
+      );
+    }
+
+    if (
       !data
     ) {
       throw new ServiceUnavailableException(
@@ -474,6 +632,11 @@ export class OutingsPaymentsService {
           email,
           input,
           result,
+        );
+
+      case 'reconciliation_required':
+        throw new ConflictException(
+          'This outing has a payment that requires review before another payment can be started.',
         );
 
       case 'not_found':
@@ -541,6 +704,53 @@ export class OutingsPaymentsService {
     );
   }
 
+  private async assertNoOpenReconciliation(
+    outingId: string,
+  ) {
+    const admin =
+      this.supabase.createAdminClient();
+
+    const {
+      data,
+      error,
+    } =
+      await admin
+        .from(
+          'outing_payment_intents',
+        )
+        .select(
+          'id',
+        )
+        .eq(
+          'outing_id',
+          outingId,
+        )
+        .eq(
+          'reconciliation_state',
+          'required',
+        )
+        .limit(
+          1,
+        )
+        .maybeSingle();
+
+    if (
+      error
+    ) {
+      throw new ServiceUnavailableException(
+        'Unable to verify payment availability right now.',
+      );
+    }
+
+    if (
+      data
+    ) {
+      throw new ConflictException(
+        'This outing has a payment that requires review before another payment can be started.',
+      );
+    }
+  }
+
   private async handleExistingIntent(
     userId: string,
     outingId: string,
@@ -583,8 +793,7 @@ export class OutingsPaymentsService {
         return {
           checkoutUrl:
             this.validateStoredCheckoutUrl(
-              existing
-                .checkout_url,
+              existing.checkout_url,
             ),
         };
       }
@@ -670,18 +879,22 @@ export class OutingsPaymentsService {
     }
 
     const checkout =
-      await this.provider.initializeCheckout(
-        {
-          intentId,
-          outingId,
-          email,
-          amountMinor,
-          currency,
-          methodId:
-            input.methodId,
-          expiresAt,
-        },
-      );
+      await this.provider.initializeCheckout({
+        intentId,
+
+        outingId,
+
+        email,
+
+        amountMinor,
+
+        currency,
+
+        methodId:
+          input.methodId,
+
+        expiresAt,
+      });
 
     const admin =
       this.supabase.createAdminClient();
@@ -797,7 +1010,7 @@ export class OutingsPaymentsService {
           'outing_payment_intents',
         )
         .select(
-          'id, status, payer_user_id, amount_minor, currency, method_id, checkout_url, expires_at, completed_at, provider_paid_at, created_at',
+          'id, status, payer_user_id, amount_minor, currency, method_id, checkout_url, expires_at, completed_at, provider_paid_at, provider_amount_minor, provider_currency, reconciliation_state, reconciliation_reason, reconciliation_required_at, reconciliation_resolution, created_at',
         )
         .eq(
           'id',
@@ -805,7 +1018,9 @@ export class OutingsPaymentsService {
         )
         .maybeSingle();
 
-    if (error) {
+    if (
+      error
+    ) {
       throw new ServiceUnavailableException(
         'Unable to reload secure checkout right now.',
       );
@@ -855,13 +1070,17 @@ export class OutingsPaymentsService {
         )
         .maybeSingle();
 
-    if (error) {
+    if (
+      error
+    ) {
       throw new ServiceUnavailableException(
         'Unable to determine the selected payer right now.',
       );
     }
 
-    if (!data) {
+    if (
+      !data
+    ) {
       return false;
     }
 
@@ -939,6 +1158,70 @@ export class OutingsPaymentsService {
     }
 
     return amount as number;
+  }
+
+  private optionalTimestamp(
+    value:
+      | string
+      | null
+      | undefined,
+  ) {
+    if (
+      !value
+    ) {
+      return undefined;
+    }
+
+    if (
+      !Number.isFinite(
+        Date.parse(
+          value,
+        ),
+      )
+    ) {
+      throw new ServiceUnavailableException(
+        'The provider payment timestamp could not be loaded safely.',
+      );
+    }
+
+    return new Date(
+      value,
+    ).toISOString();
+  }
+
+  private isReconciliationDatabaseError(
+    error: unknown,
+  ) {
+    if (
+      !error ||
+      typeof error !==
+        'object'
+    ) {
+      return false;
+    }
+
+    const record =
+      error as
+        Record<
+          string,
+          unknown
+        >;
+
+    return [
+      record.message,
+      record.details,
+      record.hint,
+      record.code,
+    ].some(
+      (
+        value,
+      ) =>
+        typeof value ===
+          'string' &&
+        value.includes(
+          'OUTING_PAYMENT_RECONCILIATION_REQUIRED',
+        ),
+    );
   }
 
   private validateStoredCheckoutUrl(

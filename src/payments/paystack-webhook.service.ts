@@ -15,6 +15,7 @@ import { SupabaseService } from '../supabase/supabase.service';
 
 type PaystackWebhookEvent = {
   event?: unknown;
+
   data?: {
     reference?: unknown;
   };
@@ -23,17 +24,21 @@ type PaystackWebhookEvent = {
 type PaystackVerifyResponse = {
   status?: boolean;
   message?: string;
+
   data?: {
     id?:
       | string
       | number;
+
     status?: string;
     reference?: string;
     amount?: number;
     currency?: string;
+
     paid_at?:
       | string
       | null;
+
     channel?: string;
   };
 };
@@ -43,10 +48,13 @@ type SettlementResult = {
   intentId?: string;
   outingId?: string;
   paymentStatus?: string;
+  reason?: string;
+  resolution?: string;
 };
 
 export type PaystackWebhookResult = {
   received: true;
+
   status:
     | 'completed'
     | 'already_completed'
@@ -54,6 +62,7 @@ export type PaystackWebhookResult = {
     | 'mismatch'
     | 'conflict'
     | 'reconciliation_required'
+    | 'reconciliation_resolved'
     | 'invalid';
 };
 
@@ -87,6 +96,7 @@ export class PaystackWebhookService {
     rawBody:
       | Buffer
       | undefined,
+
     signature:
       | string
       | undefined,
@@ -123,8 +133,7 @@ export class PaystackWebhookService {
       );
 
     /*
-     * Paystack can deliver several different event types to the same
-     * webhook URL.
+     * Paystack can deliver several event types to the same URL.
      *
      * MOVA currently settles outing payments only from charge.success.
      */
@@ -133,7 +142,9 @@ export class PaystackWebhookService {
       'charge.success'
     ) {
       return {
-        received: true,
+        received:
+          true,
+
         status:
           'ignored',
       };
@@ -156,10 +167,10 @@ export class PaystackWebhookService {
     }
 
     /*
-     * Do not trust the webhook payload for the financial values.
+     * Do not trust the webhook body for financial values.
      *
-     * We use only its reference and independently ask Paystack for the
-     * authoritative transaction record.
+     * Use only its reference and independently verify the transaction
+     * with Paystack.
      */
     const verified =
       await this.verifyTransaction(
@@ -170,12 +181,6 @@ export class PaystackWebhookService {
       verified.status !==
         'success'
     ) {
-      /*
-       * A charge.success webhook should verify as successful.
-       *
-       * Returning a temporary failure here allows Paystack to retry in
-       * case their verification endpoint is briefly inconsistent.
-       */
       throw new ServiceUnavailableException(
         'The payment is not yet verifiable as successful.',
       );
@@ -183,7 +188,7 @@ export class PaystackWebhookService {
 
     if (
       verified.reference !==
-      reference
+        reference
     ) {
       throw new ServiceUnavailableException(
         'The verified payment reference did not match the webhook.',
@@ -276,44 +281,78 @@ export class PaystackWebhookService {
     ) {
       case 'completed':
         return {
-          received: true,
+          received:
+            true,
+
           status:
             'completed',
         };
 
       case 'already_completed':
         return {
-          received: true,
+          received:
+            true,
+
           status:
             'already_completed',
         };
 
+      case 'reconciliation_resolved':
+        /*
+         * The provider payment was already manually reconciled.
+         *
+         * The important example is a late Paystack payment that MOVA
+         * later recorded as refunded.
+         *
+         * A repeated Paystack webhook must be acknowledged rather than
+         * returning 503 forever.
+         */
+        this.logger.log(
+          `Paystack payment retry acknowledged after reconciliation was resolved as ${
+            result.resolution ??
+            'resolved'
+          }.`,
+        );
+
+        return {
+          received:
+            true,
+
+          status:
+            'reconciliation_resolved',
+        };
+
       case 'not_found':
         /*
-         * A Paystack account can eventually be used for products other
-         * than MOVA outing payments.
+         * A Paystack account can eventually contain transactions from
+         * products other than MOVA outing payments.
          *
-         * A valid Paystack charge that does not belong to an MOVA
-         * payment intent is therefore safely acknowledged and ignored.
+         * A valid transaction that has no MOVA payment intent is safely
+         * acknowledged and ignored.
          */
         return {
-          received: true,
+          received:
+            true,
+
           status:
             'ignored',
         };
 
       case 'mismatch':
         /*
-         * The database has already recorded the provider event.
+         * Retained for compatibility with older settlement behaviour.
          *
-         * Do not retry a permanent amount/currency mismatch forever.
+         * Migration 008 routes verified amount/currency mismatches into
+         * reconciliation_required.
          */
         this.logger.error(
           'Verified Paystack payment does not match the MOVA payment intent.',
         );
 
         return {
-          received: true,
+          received:
+            true,
+
           status:
             'mismatch',
         };
@@ -324,18 +363,26 @@ export class PaystackWebhookService {
         );
 
         return {
-          received: true,
+          received:
+            true,
+
           status:
             'conflict',
         };
 
       case 'reconciliation_required':
         this.logger.warn(
-          'Verified Paystack payment requires manual reconciliation.',
+          `Verified Paystack payment requires reconciliation${
+            result.reason
+              ? `: ${result.reason}`
+              : '.'
+          }`,
         );
 
         return {
-          received: true,
+          received:
+            true,
+
           status:
             'reconciliation_required',
         };
@@ -346,7 +393,9 @@ export class PaystackWebhookService {
         );
 
         return {
-          received: true,
+          received:
+            true,
+
           status:
             'invalid',
         };
@@ -360,6 +409,7 @@ export class PaystackWebhookService {
 
   private verifySignature(
     rawBody: Buffer,
+
     signature:
       | string
       | undefined,
@@ -479,12 +529,15 @@ export class PaystackWebhookService {
           {
             method:
               'GET',
+
             headers: {
               Authorization:
                 `Bearer ${this.secretKey}`,
+
               Accept:
                 'application/json',
             },
+
             signal:
               controller.signal,
           },
@@ -556,12 +609,11 @@ export class PaystackWebhookService {
     | null {
     try {
       /*
-       * Paystack transaction IDs are unsigned 64-bit values.
+       * Paystack transaction IDs may exceed JavaScript's safe integer
+       * range.
        *
-       * JavaScript numbers cannot safely represent every uint64.
-       *
-       * Convert the first JSON "id" integer token to a quoted string
-       * before JSON.parse so the transaction ID is never rounded.
+       * Convert the first JSON id integer to a quoted string before
+       * JSON.parse so it cannot be rounded.
        */
       const safeJson =
         rawResponse.replace(
