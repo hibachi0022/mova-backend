@@ -32,7 +32,12 @@ type PaystackVerifyResponse = {
 
     status?: string;
     reference?: string;
+
     amount?: number;
+
+    requested_amount?:
+      number;
+
     currency?: string;
 
     paid_at?:
@@ -132,11 +137,6 @@ export class PaystackWebhookService {
         rawBody,
       );
 
-    /*
-     * Paystack can deliver several event types to the same URL.
-     *
-     * MOVA currently settles outing payments only from charge.success.
-     */
     if (
       event.event !==
       'charge.success'
@@ -167,10 +167,10 @@ export class PaystackWebhookService {
     }
 
     /*
-     * Do not trust the webhook body for financial values.
+     * The webhook tells MOVA which transaction changed.
      *
-     * Use only its reference and independently verify the transaction
-     * with Paystack.
+     * Financial values are independently retrieved from Paystack's
+     * Verify Transaction endpoint before settlement.
      */
     const verified =
       await this.verifyTransaction(
@@ -200,9 +200,30 @@ export class PaystackWebhookService {
         verified.id,
       );
 
+    /*
+     * Paystack amount:
+     *
+     * Actual amount debited from the payer. This can be greater than
+     * MOVA's bill when Paystack fees are passed to the customer.
+     */
     const amountMinor =
       this.safeAmount(
         verified.amount,
+        'payment amount',
+      );
+
+    /*
+     * Paystack requested_amount:
+     *
+     * The amount originally requested by MOVA during transaction
+     * initialization.
+     *
+     * This is the amount that must equal MOVA's trusted outing bill.
+     */
+    const requestedAmountMinor =
+      this.safeAmount(
+        verified.requested_amount,
+        'requested payment amount',
       );
 
     const currency =
@@ -244,6 +265,9 @@ export class PaystackWebhookService {
 
           p_amount_minor:
             amountMinor,
+
+          p_requested_amount_minor:
+            requestedAmountMinor,
 
           p_currency:
             currency,
@@ -298,15 +322,6 @@ export class PaystackWebhookService {
         };
 
       case 'reconciliation_resolved':
-        /*
-         * The provider payment was already manually reconciled.
-         *
-         * The important example is a late Paystack payment that MOVA
-         * later recorded as refunded.
-         *
-         * A repeated Paystack webhook must be acknowledged rather than
-         * returning 503 forever.
-         */
         this.logger.log(
           `Paystack payment retry acknowledged after reconciliation was resolved as ${
             result.resolution ??
@@ -323,13 +338,6 @@ export class PaystackWebhookService {
         };
 
       case 'not_found':
-        /*
-         * A Paystack account can eventually contain transactions from
-         * products other than MOVA outing payments.
-         *
-         * A valid transaction that has no MOVA payment intent is safely
-         * acknowledged and ignored.
-         */
         return {
           received:
             true,
@@ -339,12 +347,6 @@ export class PaystackWebhookService {
         };
 
       case 'mismatch':
-        /*
-         * Retained for compatibility with older settlement behaviour.
-         *
-         * Migration 008 routes verified amount/currency mismatches into
-         * reconciliation_required.
-         */
         this.logger.error(
           'Verified Paystack payment does not match the MOVA payment intent.',
         );
@@ -608,13 +610,6 @@ export class PaystackWebhookService {
     | PaystackVerifyResponse
     | null {
     try {
-      /*
-       * Paystack transaction IDs may exceed JavaScript's safe integer
-       * range.
-       *
-       * Convert the first JSON id integer to a quoted string before
-       * JSON.parse so it cannot be rounded.
-       */
       const safeJson =
         rawResponse.replace(
           /("id"\s*:\s*)(\d+)/,
@@ -669,6 +664,8 @@ export class PaystackWebhookService {
     value:
       | number
       | undefined,
+
+    label: string,
   ) {
     if (
       !Number.isSafeInteger(
@@ -678,7 +675,7 @@ export class PaystackWebhookService {
         0
     ) {
       throw new ServiceUnavailableException(
-        'Paystack returned an invalid payment amount.',
+        `Paystack returned an invalid ${label}.`,
       );
     }
 

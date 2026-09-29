@@ -67,6 +67,9 @@ describe(
         amount =
           500000,
 
+        requestedAmount =
+          amount,
+
         currency =
           'NGN',
 
@@ -81,6 +84,10 @@ describe(
           | string;
 
         amount?: number;
+
+        requestedAmount?:
+          number;
+
         currency?: string;
         channel?: string;
         paidAt?: string;
@@ -111,6 +118,9 @@ describe(
                 reference,
 
                 amount,
+
+                requested_amount:
+                  requestedAmount,
 
                 currency,
 
@@ -243,9 +253,9 @@ describe(
       ).not.toHaveBeenCalled();
     });
 
-    it('verifies and settles a successful Paystack charge', async () => {
+    it('passes actual and requested Paystack amounts separately', async () => {
       const reference =
-        'MOVA-abc123';
+        'MOVA-fee-pass-test';
 
       const rawBody =
         webhookBody(
@@ -253,36 +263,16 @@ describe(
           reference,
         );
 
-      /*
-       * Deliberately larger than JavaScript's safe integer range.
-       */
-      const verifyResponse =
-        `{
-          "status": true,
-          "message": "Verification successful",
-          "data": {
-            "id": 1844674407370955161,
-            "domain": "test",
-            "status": "success",
-            "reference": "${reference}",
-            "amount": 750000,
-            "paid_at": "2026-09-27T20:00:00.000Z",
-            "channel": "card",
-            "currency": "NGN"
-          }
-        }`;
+      successfulVerification(
+        reference,
+        {
+          amount:
+            101523,
 
-      fetchMock.mockResolvedValue({
-        ok:
-          true,
-
-        status:
-          200,
-
-        text:
-          async () =>
-            verifyResponse,
-      } as Response);
+          requestedAmount:
+            100000,
+        },
+      );
 
       rpc.mockResolvedValue({
         data: {
@@ -316,24 +306,6 @@ describe(
       });
 
       expect(
-        fetchMock,
-      ).toHaveBeenCalledWith(
-        `https://api.paystack.co/transaction/verify/${reference}`,
-        expect.objectContaining({
-          method:
-            'GET',
-
-          headers: {
-            Authorization:
-              `Bearer ${secretKey}`,
-
-            Accept:
-              'application/json',
-          },
-        }),
-      );
-
-      expect(
         rpc,
       ).toHaveBeenCalledWith(
         'complete_outing_payment_from_provider',
@@ -341,31 +313,89 @@ describe(
           p_provider:
             'paystack',
 
-          p_event_type:
-            'charge.success',
-
           p_provider_reference:
             reference,
 
+          p_amount_minor:
+            101523,
+
+          p_requested_amount_minor:
+            100000,
+
+          p_currency:
+            'NGN',
+        }),
+      );
+    });
+
+    it('preserves large Paystack transaction IDs exactly', async () => {
+      const reference =
+        'MOVA-large-id';
+
+      const rawBody =
+        webhookBody(
+          'charge.success',
+          reference,
+        );
+
+      const verifyResponse =
+        `{
+          "status": true,
+          "message": "Verification successful",
+          "data": {
+            "id": 1844674407370955161,
+            "status": "success",
+            "reference": "${reference}",
+            "amount": 750000,
+            "requested_amount": 750000,
+            "paid_at": "2026-09-27T20:00:00.000Z",
+            "channel": "card",
+            "currency": "NGN"
+          }
+        }`;
+
+      fetchMock.mockResolvedValue({
+        ok:
+          true,
+
+        status:
+          200,
+
+        text:
+          async () =>
+            verifyResponse,
+      } as Response);
+
+      rpc.mockResolvedValue({
+        data: {
+          status:
+            'completed',
+        },
+
+        error:
+          null,
+      });
+
+      await service.handle(
+        rawBody,
+        sign(
+          rawBody,
+        ),
+      );
+
+      expect(
+        rpc,
+      ).toHaveBeenCalledWith(
+        'complete_outing_payment_from_provider',
+        expect.objectContaining({
           p_provider_transaction_id:
             '1844674407370955161',
 
           p_amount_minor:
             750000,
 
-          p_currency:
-            'NGN',
-
-          p_channel:
-            'card',
-
-          p_paid_at:
-            '2026-09-27T20:00:00.000Z',
-
-          p_payload_hash:
-            expect.stringMatching(
-              /^[0-9a-f]{64}$/,
-            ),
+          p_requested_amount_minor:
+            750000,
         }),
       );
     });
@@ -431,12 +461,6 @@ describe(
 
           resolution:
             'refunded',
-
-          intentId:
-            'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
-
-          outingId:
-            'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
         },
 
         error:
@@ -461,7 +485,7 @@ describe(
 
     it('acknowledges a payment that requires reconciliation', async () => {
       const reference =
-        'MOVA-late-success';
+        'MOVA-reconcile-test';
 
       const rawBody =
         webhookBody(
@@ -480,9 +504,6 @@ describe(
 
           reason:
             'late_success_expired',
-
-          intentId:
-            'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
         },
 
         error:
@@ -503,6 +524,73 @@ describe(
         status:
           'reconciliation_required',
       });
+    });
+
+    it('rejects verification that omits requested_amount', async () => {
+      const reference =
+        'MOVA-no-requested-amount';
+
+      const rawBody =
+        webhookBody(
+          'charge.success',
+          reference,
+        );
+
+      fetchMock.mockResolvedValue({
+        ok:
+          true,
+
+        status:
+          200,
+
+        text:
+          async () =>
+            JSON.stringify({
+              status:
+                true,
+
+              data: {
+                id:
+                  123456,
+
+                status:
+                  'success',
+
+                reference,
+
+                amount:
+                  500000,
+
+                currency:
+                  'NGN',
+
+                paid_at:
+                  '2026-09-29T20:00:00.000Z',
+
+                channel:
+                  'card',
+              },
+            }),
+      } as Response);
+
+      await expect(
+        service.handle(
+          rawBody,
+          sign(
+            rawBody,
+          ),
+        ),
+      ).rejects.toMatchObject({
+        status:
+          503,
+
+        message:
+          'Paystack returned an invalid requested payment amount.',
+      });
+
+      expect(
+        rpc,
+      ).not.toHaveBeenCalled();
     });
 
     it('returns a temporary failure when Paystack verification is unavailable', async () => {
@@ -564,6 +652,9 @@ describe(
         reference,
         {
           amount:
+            100000,
+
+          requestedAmount:
             100000,
         },
       );
