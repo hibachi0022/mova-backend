@@ -21,6 +21,7 @@ import { AddOutingGuestDto } from './dto/add-outing-guest.dto';
 import { CreateOutingDto } from './dto/create-outing.dto';
 import { OutingCheckoutDto } from './dto/outing-checkout.dto';
 import { OutingMemberConsentDto } from './dto/outing-member-consent.dto';
+import { OutingsPaymentReceiptsService } from './outings-payment-receipts.service';
 import { OutingsPaymentsService } from './outings-payments.service';
 import { OutingsRouletteService } from './outings-roulette.service';
 import { OutingsService } from './outings.service';
@@ -42,6 +43,9 @@ export class OutingsController {
 
     private readonly payments:
       OutingsPaymentsService,
+
+    private readonly receipts:
+      OutingsPaymentReceiptsService,
   ) {}
 
   @Get()
@@ -291,6 +295,35 @@ export class OutingsController {
       OutingIdParams,
   ) {
     return this.payments.status(
+      request.authUser.id,
+      params.id,
+    );
+  }
+
+  @Get(
+    ':id/payment/receipt',
+  )
+  @Header(
+    'Cache-Control',
+    'no-store',
+  )
+  @Throttle({
+    default: {
+      limit:
+        30,
+      ttl:
+        60_000,
+    },
+  })
+  paymentReceipt(
+    @Req()
+    request:
+      AuthenticatedRequest,
+    @Param()
+    params:
+      OutingIdParams,
+  ) {
+    return this.receipts.getReceipt(
       request.authUser.id,
       params.id,
     );

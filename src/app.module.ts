@@ -29,6 +29,7 @@ import { SocialService } from './me/social.service';
 import { InvitesController } from './outings/invites.controller';
 import { OutingsController } from './outings/outings.controller';
 import { OutingsPaymentProviderService } from './outings/outings-payment-provider.service';
+import { OutingsPaymentReceiptsService } from './outings/outings-payment-receipts.service';
 import { OutingsPaymentsService } from './outings/outings-payments.service';
 import { OutingsRouletteService } from './outings/outings-roulette.service';
 import { OutingsService } from './outings/outings.service';
@@ -79,6 +80,7 @@ import { SupabaseService } from './supabase/supabase.service';
     OutingsRouletteService,
     OutingsPaymentProviderService,
     OutingsPaymentsService,
+    OutingsPaymentReceiptsService,
     PaystackWebhookService,
     CredentialService,
     AccountService,
