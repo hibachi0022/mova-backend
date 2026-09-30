@@ -158,9 +158,6 @@ export class OutingsPaymentsService {
   ): Promise<
     OutingPaymentStatusResponse
   > {
-    /*
-     * Verify membership before exposing payment information.
-     */
     const outing =
       await this.outings.get(
         userId,
@@ -170,12 +167,6 @@ export class OutingsPaymentsService {
     const admin =
       this.supabase.createAdminClient();
 
-    /*
-     * Reconciliation takes priority over every other state.
-     *
-     * This is especially important when the outing already has one
-     * completed payment but another provider transaction also arrived.
-     */
     const {
       data:
         reconciliationData,
@@ -266,9 +257,6 @@ export class OutingsPaymentsService {
       };
     }
 
-    /*
-     * A completed intent is the final normal state.
-     */
     const {
       data:
         completedData,
@@ -353,11 +341,6 @@ export class OutingsPaymentsService {
       };
     }
 
-    /*
-     * No completed payment exists.
-     *
-     * Inspect the newest payment attempt.
-     */
     const {
       data:
         latestData,
@@ -437,10 +420,6 @@ export class OutingsPaymentsService {
         };
       }
 
-      /*
-       * cancelled / expired / failed attempts are unpaid once any
-       * reconciliation has been resolved.
-       */
       return {
         status:
           'unpaid',
@@ -496,6 +475,23 @@ export class OutingsPaymentsService {
         idempotencyKey,
       );
 
+    /*
+     * MOVA currently supports saving reusable Paystack card
+     * authorizations only.
+     *
+     * Never treat bank transfer, Apple Pay, etc. as a saved card.
+     */
+    if (
+      input.savePaymentMethod ===
+        true &&
+      input.methodId !==
+        'card'
+    ) {
+      throw new UnprocessableEntityException(
+        'Only card payments can be saved as a payment method.',
+      );
+    }
+
     if (
       !email ||
       !this.isReasonableEmail(
@@ -507,19 +503,12 @@ export class OutingsPaymentsService {
       );
     }
 
-    /*
-     * Membership and outing existence are checked first.
-     */
     const outing =
       await this.outings.get(
         userId,
         outingId,
       );
 
-    /*
-     * Never allow another checkout while MOVA has a verified provider
-     * payment waiting for reconciliation.
-     */
     await this.assertNoOpenReconciliation(
       outingId,
     );
@@ -585,13 +574,6 @@ export class OutingsPaymentsService {
     if (
       error
     ) {
-      /*
-       * Migration 008 also has a database trigger as the race-condition
-       * safety net.
-       *
-       * If reconciliation appeared between our pre-check and insert,
-       * return a controlled 409 instead of a generic 503.
-       */
       if (
         this.isReconciliationDatabaseError(
           error,
@@ -623,6 +605,16 @@ export class OutingsPaymentsService {
       result.status
     ) {
       case 'created':
+        /*
+         * Freeze the user's explicit save-card preference before
+         * contacting Paystack.
+         */
+        await this.setPaymentMethodSaveConsent(
+          userId,
+          result,
+          input.savePaymentMethod ??
+            false,
+        );
         break;
 
       case 'existing':
@@ -704,6 +696,91 @@ export class OutingsPaymentsService {
     );
   }
 
+  private async setPaymentMethodSaveConsent(
+    userId: string,
+    result:
+      PreparePaymentResult,
+    savePaymentMethod:
+      boolean,
+  ) {
+    if (
+      typeof result.intentId !==
+      'string'
+    ) {
+      throw new ServiceUnavailableException(
+        'The payment request could not be loaded safely.',
+      );
+    }
+
+    const admin =
+      this.supabase.createAdminClient();
+
+    const {
+      data,
+      error,
+    } =
+      await admin.rpc(
+        'set_outing_payment_method_save_consent',
+        {
+          p_user_id:
+            userId,
+
+          p_intent_id:
+            result.intentId,
+
+          p_save_payment_method:
+            savePaymentMethod,
+        },
+      );
+
+    if (
+      error ||
+      !data
+    ) {
+      throw new ServiceUnavailableException(
+        'Unable to save the payment method preference right now.',
+      );
+    }
+
+    const consent =
+      data as {
+        status?: string;
+
+        intentId?: string;
+
+        savePaymentMethod?:
+          boolean;
+      };
+
+    switch (
+      consent.status
+    ) {
+      case 'updated':
+      case 'existing':
+        return;
+
+      case 'locked':
+        throw new ConflictException(
+          'The save-card choice for this checkout can no longer be changed.',
+        );
+
+      case 'not_found':
+        throw new NotFoundException(
+          'Payment request not found.',
+        );
+
+      case 'invalid':
+        throw new BadRequestException(
+          'Unable to save this payment preference.',
+        );
+
+      default:
+        throw new ServiceUnavailableException(
+          'Unable to save the payment method preference right now.',
+        );
+    }
+  }
+
   private async assertNoOpenReconciliation(
     outingId: string,
   ) {
@@ -768,6 +845,24 @@ export class OutingsPaymentsService {
     ) {
       throw new ServiceUnavailableException(
         'The payment request could not be loaded.',
+      );
+    }
+
+    /*
+     * A retry is allowed to reuse the existing checkout only if its
+     * save-card preference is compatible with the frozen intent.
+     */
+    if (
+      result.paymentStatus ===
+        'created' ||
+      result.paymentStatus ===
+        'checkout_ready'
+    ) {
+      await this.setPaymentMethodSaveConsent(
+        userId,
+        result,
+        input.savePaymentMethod ??
+          false,
       );
     }
 

@@ -78,6 +78,12 @@ describe(
 
         paidAt =
           '2026-09-29T20:00:00.000Z',
+
+        reusableCard =
+          false,
+
+        reusable =
+          true,
       }: {
         id?:
           | number
@@ -89,8 +95,16 @@ describe(
           number;
 
         currency?: string;
+
         channel?: string;
+
         paidAt?: string;
+
+        reusableCard?:
+          boolean;
+
+        reusable?:
+          boolean;
       } = {},
     ) {
       fetchMock.mockResolvedValue({
@@ -128,6 +142,52 @@ describe(
                   paidAt,
 
                 channel,
+
+                ...(reusableCard
+                  ? {
+                      authorization: {
+                        authorization_code:
+                          'AUTH_test_4081',
+
+                        last4:
+                          '4081',
+
+                        exp_month:
+                          '12',
+
+                        exp_year:
+                          '2030',
+
+                        channel:
+                          'card',
+
+                        card_type:
+                          'visa ',
+
+                        bank:
+                          'TEST BANK',
+
+                        country_code:
+                          'NG',
+
+                        brand:
+                          'visa',
+
+                        reusable,
+
+                        signature:
+                          'SIG_test_4081',
+                      },
+
+                      customer: {
+                        email:
+                          'samuel@example.com',
+
+                        customer_code:
+                          'CUS_test_samuel',
+                      },
+                    }
+                  : {}),
               },
             }),
       } as Response);
@@ -328,6 +388,388 @@ describe(
       );
     });
 
+    it('saves a verified reusable card authorization after settlement', async () => {
+      const reference =
+        'MOVA-save-card-test';
+
+      const rawBody =
+        webhookBody(
+          'charge.success',
+          reference,
+        );
+
+      successfulVerification(
+        reference,
+        {
+          amount:
+            101523,
+
+          requestedAmount:
+            100000,
+
+          reusableCard:
+            true,
+        },
+      );
+
+      rpc.mockImplementation(
+        (
+          name:
+            string,
+        ) => {
+          if (
+            name ===
+            'complete_outing_payment_from_provider'
+          ) {
+            return Promise.resolve({
+              data: {
+                status:
+                  'completed',
+
+                intentId:
+                  'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+
+                outingId:
+                  'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+              },
+
+              error:
+                null,
+            });
+          }
+
+          if (
+            name ===
+            'save_outing_payment_method_from_provider'
+          ) {
+            return Promise.resolve({
+              data: {
+                status:
+                  'saved',
+
+                methodId:
+                  'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+              },
+
+              error:
+                null,
+            });
+          }
+
+          throw new Error(
+            `Unexpected RPC ${name}`,
+          );
+        },
+      );
+
+      await expect(
+        service.handle(
+          rawBody,
+          sign(
+            rawBody,
+          ),
+        ),
+      ).resolves.toEqual({
+        received:
+          true,
+
+        status:
+          'completed',
+      });
+
+      expect(
+        rpc,
+      ).toHaveBeenCalledWith(
+        'save_outing_payment_method_from_provider',
+        {
+          p_provider:
+            'paystack',
+
+          p_provider_reference:
+            reference,
+
+          p_provider_customer_code:
+            'CUS_test_samuel',
+
+          p_provider_email:
+            'samuel@example.com',
+
+          p_provider_authorization_code:
+            'AUTH_test_4081',
+
+          p_provider_signature:
+            'SIG_test_4081',
+
+          p_network:
+            'visa',
+
+          p_last4:
+            '4081',
+
+          p_exp_month:
+            12,
+
+          p_exp_year:
+            2030,
+
+          p_bank:
+            'TEST BANK',
+
+          p_country_code:
+            'NG',
+
+          p_paid_at:
+            '2026-09-29T20:00:00.000Z',
+        },
+      );
+
+      const settlementCall =
+        rpc.mock.calls.findIndex(
+          (
+            call,
+          ) =>
+            call[0] ===
+            'complete_outing_payment_from_provider',
+        );
+
+      const saveCall =
+        rpc.mock.calls.findIndex(
+          (
+            call,
+          ) =>
+            call[0] ===
+            'save_outing_payment_method_from_provider',
+        );
+
+      expect(
+        settlementCall,
+      ).toBeGreaterThanOrEqual(
+        0,
+      );
+
+      expect(
+        saveCall,
+      ).toBeGreaterThan(
+        settlementCall,
+      );
+    });
+
+    it('does not save a non-reusable Paystack authorization', async () => {
+      const reference =
+        'MOVA-not-reusable';
+
+      const rawBody =
+        webhookBody(
+          'charge.success',
+          reference,
+        );
+
+      successfulVerification(
+        reference,
+        {
+          reusableCard:
+            true,
+
+          reusable:
+            false,
+        },
+      );
+
+      rpc.mockResolvedValue({
+        data: {
+          status:
+            'completed',
+        },
+
+        error:
+          null,
+      });
+
+      await expect(
+        service.handle(
+          rawBody,
+          sign(
+            rawBody,
+          ),
+        ),
+      ).resolves.toEqual({
+        received:
+          true,
+
+        status:
+          'completed',
+      });
+
+      expect(
+        rpc,
+      ).toHaveBeenCalledTimes(
+        1,
+      );
+
+      expect(
+        rpc,
+      ).not.toHaveBeenCalledWith(
+        'save_outing_payment_method_from_provider',
+        expect.anything(),
+      );
+    });
+
+    it('allows the database to reject card saving when consent was not requested', async () => {
+      const reference =
+        'MOVA-no-save-consent';
+
+      const rawBody =
+        webhookBody(
+          'charge.success',
+          reference,
+        );
+
+      successfulVerification(
+        reference,
+        {
+          reusableCard:
+            true,
+        },
+      );
+
+      rpc.mockImplementation(
+        (
+          name:
+            string,
+        ) => {
+          if (
+            name ===
+            'complete_outing_payment_from_provider'
+          ) {
+            return Promise.resolve({
+              data: {
+                status:
+                  'completed',
+              },
+
+              error:
+                null,
+            });
+          }
+
+          if (
+            name ===
+            'save_outing_payment_method_from_provider'
+          ) {
+            return Promise.resolve({
+              data: {
+                status:
+                  'not_requested',
+              },
+
+              error:
+                null,
+            });
+          }
+
+          throw new Error(
+            `Unexpected RPC ${name}`,
+          );
+        },
+      );
+
+      await expect(
+        service.handle(
+          rawBody,
+          sign(
+            rawBody,
+          ),
+        ),
+      ).resolves.toEqual({
+        received:
+          true,
+
+        status:
+          'completed',
+      });
+
+      expect(
+        rpc,
+      ).toHaveBeenCalledTimes(
+        2,
+      );
+    });
+
+    it('returns a temporary failure when saved-card persistence has a transient database error', async () => {
+      const reference =
+        'MOVA-save-card-db-error';
+
+      const rawBody =
+        webhookBody(
+          'charge.success',
+          reference,
+        );
+
+      successfulVerification(
+        reference,
+        {
+          reusableCard:
+            true,
+        },
+      );
+
+      rpc.mockImplementation(
+        (
+          name:
+            string,
+        ) => {
+          if (
+            name ===
+            'complete_outing_payment_from_provider'
+          ) {
+            return Promise.resolve({
+              data: {
+                status:
+                  'completed',
+              },
+
+              error:
+                null,
+            });
+          }
+
+          if (
+            name ===
+            'save_outing_payment_method_from_provider'
+          ) {
+            return Promise.resolve({
+              data:
+                null,
+
+              error: {
+                message:
+                  'database unavailable',
+              },
+            });
+          }
+
+          throw new Error(
+            `Unexpected RPC ${name}`,
+          );
+        },
+      );
+
+      await expect(
+        service.handle(
+          rawBody,
+          sign(
+            rawBody,
+          ),
+        ),
+      ).rejects.toMatchObject({
+        status:
+          503,
+
+        message:
+          'Payment was verified but the saved payment method could not be recorded right now.',
+      });
+    });
+
     it('preserves large Paystack transaction IDs exactly', async () => {
       const reference =
         'MOVA-large-id';
@@ -440,6 +882,88 @@ describe(
       });
     });
 
+    it('retries saved-card persistence on an already-completed webhook retry', async () => {
+      const reference =
+        'MOVA-repeat-save-card';
+
+      const rawBody =
+        webhookBody(
+          'charge.success',
+          reference,
+        );
+
+      successfulVerification(
+        reference,
+        {
+          reusableCard:
+            true,
+        },
+      );
+
+      rpc.mockImplementation(
+        (
+          name:
+            string,
+        ) => {
+          if (
+            name ===
+            'complete_outing_payment_from_provider'
+          ) {
+            return Promise.resolve({
+              data: {
+                status:
+                  'already_completed',
+              },
+
+              error:
+                null,
+            });
+          }
+
+          if (
+            name ===
+            'save_outing_payment_method_from_provider'
+          ) {
+            return Promise.resolve({
+              data: {
+                status:
+                  'updated',
+              },
+
+              error:
+                null,
+            });
+          }
+
+          throw new Error(
+            `Unexpected RPC ${name}`,
+          );
+        },
+      );
+
+      await expect(
+        service.handle(
+          rawBody,
+          sign(
+            rawBody,
+          ),
+        ),
+      ).resolves.toEqual({
+        received:
+          true,
+
+        status:
+          'already_completed',
+      });
+
+      expect(
+        rpc,
+      ).toHaveBeenCalledWith(
+        'save_outing_payment_method_from_provider',
+        expect.anything(),
+      );
+    });
+
     it('acknowledges a webhook retry after refund reconciliation was resolved', async () => {
       const reference =
         'MOVA-refunded-reconciliation';
@@ -524,6 +1048,66 @@ describe(
         status:
           'reconciliation_required',
       });
+    });
+
+    it('does not save a card while payment reconciliation is required', async () => {
+      const reference =
+        'MOVA-reconcile-save-card';
+
+      const rawBody =
+        webhookBody(
+          'charge.success',
+          reference,
+        );
+
+      successfulVerification(
+        reference,
+        {
+          reusableCard:
+            true,
+        },
+      );
+
+      rpc.mockResolvedValue({
+        data: {
+          status:
+            'reconciliation_required',
+
+          reason:
+            'late_success_expired',
+        },
+
+        error:
+          null,
+      });
+
+      await expect(
+        service.handle(
+          rawBody,
+          sign(
+            rawBody,
+          ),
+        ),
+      ).resolves.toEqual({
+        received:
+          true,
+
+        status:
+          'reconciliation_required',
+      });
+
+      expect(
+        rpc,
+      ).toHaveBeenCalledTimes(
+        1,
+      );
+
+      expect(
+        rpc,
+      ).not.toHaveBeenCalledWith(
+        'save_outing_payment_method_from_provider',
+        expect.anything(),
+      );
     });
 
     it('rejects verification that omits requested_amount', async () => {
@@ -656,6 +1240,9 @@ describe(
 
           requestedAmount:
             100000,
+
+          reusableCard:
+            true,
         },
       );
 
@@ -683,6 +1270,12 @@ describe(
         status:
           'ignored',
       });
+
+      expect(
+        rpc,
+      ).toHaveBeenCalledTimes(
+        1,
+      );
     });
   },
 );

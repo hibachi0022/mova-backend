@@ -21,6 +21,7 @@ import { DeleteAccountDto } from './dto/delete-account.dto';
 import { SocialSettingsDto } from './dto/social-settings.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { PaymentHistoryService } from './payment-history.service';
+import { PaymentMethodsService } from './payment-methods.service';
 import { PaymentRecipientsService } from './payment-recipients.service';
 import { ProfileService } from './profile.service';
 import { SocialService } from './social.service';
@@ -46,6 +47,9 @@ export class MeController {
 
     private readonly paymentHistoryService:
       PaymentHistoryService,
+
+    private readonly paymentMethodsService:
+      PaymentMethodsService,
   ) {}
 
   @Patch()
@@ -108,6 +112,29 @@ export class MeController {
     return this.socialService.updateSettings(
       request.authUser.id,
       input,
+    );
+  }
+
+  @Get('payment-methods')
+  @Header(
+    'Cache-Control',
+    'no-store',
+  )
+  @Throttle({
+    default: {
+      limit:
+        30,
+      ttl:
+        60_000,
+    },
+  })
+  paymentMethods(
+    @Req()
+    request:
+      AuthenticatedRequest,
+  ) {
+    return this.paymentMethodsService.list(
+      request.authUser.id,
     );
   }
 

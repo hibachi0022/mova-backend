@@ -1,5 +1,7 @@
 import {
+  IsBoolean,
   IsIn,
+  IsOptional,
   IsString,
 } from 'class-validator';
 
@@ -22,4 +24,9 @@ export class OutingCheckoutDto {
   )
   methodId!:
     OutingPaymentMethodId;
+
+  @IsOptional()
+  @IsBoolean()
+  savePaymentMethod?:
+    boolean;
 }

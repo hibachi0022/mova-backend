@@ -656,7 +656,13 @@ describe(
     it('creates and attaches provider checkout', async () => {
       rpc.mockImplementation(
         (
-          name: string,
+          name:
+            string,
+          args:
+            Record<
+              string,
+              unknown
+            >,
         ) => {
           if (
             name ===
@@ -683,6 +689,27 @@ describe(
 
                 expiresAt:
                   '2099-10-01T18:15:00.000Z',
+              },
+
+              error:
+                null,
+            });
+          }
+
+          if (
+            name ===
+            'set_outing_payment_method_save_consent'
+          ) {
+            return Promise.resolve({
+              data: {
+                status:
+                  'updated',
+
+                intentId,
+
+                savePaymentMethod:
+                  args
+                    .p_save_payment_method,
               },
 
               error:
@@ -736,6 +763,22 @@ describe(
       });
 
       expect(
+        rpc,
+      ).toHaveBeenCalledWith(
+        'set_outing_payment_method_save_consent',
+        {
+          p_user_id:
+            userId,
+
+          p_intent_id:
+            intentId,
+
+          p_save_payment_method:
+            false,
+        },
+      );
+
+      expect(
         initializeCheckout,
       ).toHaveBeenCalledWith({
         intentId,
@@ -759,36 +802,231 @@ describe(
       });
     });
 
-    it('reuses an existing checkout-ready URL', async () => {
-      rpc.mockResolvedValue({
-        data: {
-          status:
-            'existing',
+    it('stores explicit save-card consent before creating checkout', async () => {
+      rpc.mockImplementation(
+        (
+          name:
+            string,
+          args:
+            Record<
+              string,
+              unknown
+            >,
+        ) => {
+          if (
+            name ===
+            'prepare_outing_payment_intent'
+          ) {
+            return Promise.resolve({
+              data: {
+                status:
+                  'created',
 
-          intentId,
+                intentId,
 
-          paymentStatus:
-            'checkout_ready',
+                selectedMemberId:
+                  memberId,
 
-          selectedMemberId:
-            memberId,
+                amountMinor:
+                  500000,
 
-          amountMinor:
-            500000,
+                currency:
+                  'NGN',
 
-          currency:
-            'NGN',
+                methodId:
+                  'card',
 
-          methodId:
-            'card',
+                expiresAt:
+                  '2099-10-01T18:15:00.000Z',
+              },
 
-          expiresAt:
-            '2099-10-01T18:15:00.000Z',
+              error:
+                null,
+            });
+          }
+
+          if (
+            name ===
+            'set_outing_payment_method_save_consent'
+          ) {
+            return Promise.resolve({
+              data: {
+                status:
+                  'updated',
+
+                intentId,
+
+                savePaymentMethod:
+                  args
+                    .p_save_payment_method,
+              },
+
+              error:
+                null,
+            });
+          }
+
+          if (
+            name ===
+            'attach_outing_payment_checkout'
+          ) {
+            return Promise.resolve({
+              data: {
+                status:
+                  'ready',
+
+                intentId,
+
+                checkoutUrl:
+                  'https://checkout.paystack.com/test',
+
+                expiresAt:
+                  '2099-10-01T18:15:00.000Z',
+              },
+
+              error:
+                null,
+            });
+          }
+
+          throw new Error(
+            `Unexpected RPC ${name}`,
+          );
         },
+      );
 
-        error:
-          null,
+      await expect(
+        service.checkout(
+          userId,
+          'samuel@example.com',
+          outingId,
+          {
+            methodId:
+              'card',
+
+            savePaymentMethod:
+              true,
+          },
+          'checkout-save-card-12345',
+        ),
+      ).resolves.toEqual({
+        checkoutUrl:
+          'https://checkout.paystack.com/test',
       });
+
+      expect(
+        rpc,
+      ).toHaveBeenCalledWith(
+        'set_outing_payment_method_save_consent',
+        {
+          p_user_id:
+            userId,
+
+          p_intent_id:
+            intentId,
+
+          p_save_payment_method:
+            true,
+        },
+      );
+
+      const consentCallIndex =
+        rpc.mock.calls.findIndex(
+          (
+            call,
+          ) =>
+            call[0] ===
+            'set_outing_payment_method_save_consent',
+        );
+
+      const attachCallIndex =
+        rpc.mock.calls.findIndex(
+          (
+            call,
+          ) =>
+            call[0] ===
+            'attach_outing_payment_checkout',
+        );
+
+      expect(
+        consentCallIndex,
+      ).toBeGreaterThanOrEqual(
+        0,
+      );
+
+      expect(
+        attachCallIndex,
+      ).toBeGreaterThan(
+        consentCallIndex,
+      );
+    });
+
+    it('reuses an existing checkout-ready URL when the save-card preference matches', async () => {
+      rpc.mockImplementation(
+        (
+          name:
+            string,
+        ) => {
+          if (
+            name ===
+            'prepare_outing_payment_intent'
+          ) {
+            return Promise.resolve({
+              data: {
+                status:
+                  'existing',
+
+                intentId,
+
+                paymentStatus:
+                  'checkout_ready',
+
+                selectedMemberId:
+                  memberId,
+
+                amountMinor:
+                  500000,
+
+                currency:
+                  'NGN',
+
+                methodId:
+                  'card',
+
+                expiresAt:
+                  '2099-10-01T18:15:00.000Z',
+              },
+
+              error:
+                null,
+            });
+          }
+
+          if (
+            name ===
+            'set_outing_payment_method_save_consent'
+          ) {
+            return Promise.resolve({
+              data: {
+                status:
+                  'existing',
+
+                intentId,
+
+                savePaymentMethod:
+                  false,
+              },
+
+              error:
+                null,
+            });
+          }
+
+          throw new Error(
+            `Unexpected RPC ${name}`,
+          );
+        },
+      );
 
       paymentResponses.push(
         {
@@ -879,6 +1117,100 @@ describe(
       ).not.toHaveBeenCalled();
     });
 
+    it('rejects changing the save-card preference after checkout has been created', async () => {
+      rpc.mockImplementation(
+        (
+          name:
+            string,
+        ) => {
+          if (
+            name ===
+            'prepare_outing_payment_intent'
+          ) {
+            return Promise.resolve({
+              data: {
+                status:
+                  'existing',
+
+                intentId,
+
+                paymentStatus:
+                  'checkout_ready',
+
+                selectedMemberId:
+                  memberId,
+
+                amountMinor:
+                  500000,
+
+                currency:
+                  'NGN',
+
+                methodId:
+                  'card',
+
+                expiresAt:
+                  '2099-10-01T18:15:00.000Z',
+              },
+
+              error:
+                null,
+            });
+          }
+
+          if (
+            name ===
+            'set_outing_payment_method_save_consent'
+          ) {
+            return Promise.resolve({
+              data: {
+                status:
+                  'locked',
+
+                intentId,
+
+                savePaymentMethod:
+                  false,
+              },
+
+              error:
+                null,
+            });
+          }
+
+          throw new Error(
+            `Unexpected RPC ${name}`,
+          );
+        },
+      );
+
+      await expect(
+        service.checkout(
+          userId,
+          'samuel@example.com',
+          outingId,
+          {
+            methodId:
+              'card',
+
+            savePaymentMethod:
+              true,
+          },
+          'checkout-key-12345',
+        ),
+      ).rejects.toMatchObject({
+        status:
+          409,
+
+        message:
+          'The save-card choice for this checkout can no longer be changed.',
+      });
+
+      expect(
+        initializeCheckout,
+      ).not.toHaveBeenCalled();
+    });
+
     it('prevents a member who was not selected from paying', async () => {
       rpc.mockResolvedValue({
         data: {
@@ -936,6 +1268,38 @@ describe(
         status:
           409,
       });
+    });
+
+    it('rejects saving a non-card payment method', async () => {
+      await expect(
+        service.checkout(
+          userId,
+          'samuel@example.com',
+          outingId,
+          {
+            methodId:
+              'bank_transfer',
+
+            savePaymentMethod:
+              true,
+          },
+          'checkout-key-12345',
+        ),
+      ).rejects.toMatchObject({
+        status:
+          422,
+
+        message:
+          'Only card payments can be saved as a payment method.',
+      });
+
+      expect(
+        rpc,
+      ).not.toHaveBeenCalled();
+
+      expect(
+        initializeCheckout,
+      ).not.toHaveBeenCalled();
     });
 
     it('rejects unavailable payment methods before creating an intent', async () => {
