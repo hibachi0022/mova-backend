@@ -21,9 +21,11 @@ import { AddOutingGuestDto } from './dto/add-outing-guest.dto';
 import { CreateOutingDto } from './dto/create-outing.dto';
 import { OutingCheckoutDto } from './dto/outing-checkout.dto';
 import { OutingMemberConsentDto } from './dto/outing-member-consent.dto';
+import { OutingSavedCardChargeDto } from './dto/outing-saved-card-charge.dto';
 import { OutingsPaymentReceiptsService } from './outings-payment-receipts.service';
 import { OutingsPaymentsService } from './outings-payments.service';
 import { OutingsRouletteService } from './outings-roulette.service';
+import { OutingsSavedCardPaymentsService } from './outings-saved-card-payments.service';
 import { OutingsService } from './outings.service';
 
 class OutingIdParams {
@@ -43,6 +45,9 @@ export class OutingsController {
 
     private readonly payments:
       OutingsPaymentsService,
+
+    private readonly savedCardPayments:
+      OutingsSavedCardPaymentsService,
 
     private readonly receipts:
       OutingsPaymentReceiptsService,
@@ -326,6 +331,52 @@ export class OutingsController {
     return this.receipts.getReceipt(
       request.authUser.id,
       params.id,
+    );
+  }
+
+  @Post(
+    ':id/saved-card-charge',
+  )
+  @HttpCode(
+    HttpStatus.OK,
+  )
+  @Header(
+    'Cache-Control',
+    'no-store',
+  )
+  @Throttle({
+    default: {
+      limit:
+        5,
+      ttl:
+        60_000,
+    },
+  })
+  savedCardCharge(
+    @Req()
+    request:
+      AuthenticatedRequest,
+
+    @Param()
+    params:
+      OutingIdParams,
+
+    @Body()
+    input:
+      OutingSavedCardChargeDto,
+
+    @Headers(
+      'idempotency-key',
+    )
+    idempotencyKey:
+      | string
+      | undefined,
+  ) {
+    return this.savedCardPayments.charge(
+      request.authUser.id,
+      params.id,
+      input,
+      idempotencyKey,
     );
   }
 

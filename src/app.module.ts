@@ -34,6 +34,7 @@ import { OutingsPaymentProviderService } from './outings/outings-payment-provide
 import { OutingsPaymentReceiptsService } from './outings/outings-payment-receipts.service';
 import { OutingsPaymentsService } from './outings/outings-payments.service';
 import { OutingsRouletteService } from './outings/outings-roulette.service';
+import { OutingsSavedCardPaymentsService } from './outings/outings-saved-card-payments.service';
 import { OutingsService } from './outings/outings.service';
 import { PaystackWebhookController } from './payments/paystack-webhook.controller';
 import { PaystackWebhookService } from './payments/paystack-webhook.service';
@@ -84,6 +85,7 @@ import { SupabaseService } from './supabase/supabase.service';
     OutingsRouletteService,
     OutingsPaymentProviderService,
     OutingsPaymentsService,
+    OutingsSavedCardPaymentsService,
     OutingsPaymentReceiptsService,
     PaystackWebhookService,
     CredentialService,
