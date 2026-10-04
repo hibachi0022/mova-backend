@@ -22,10 +22,16 @@ describe(
     const userId =
       '11111111-1111-4111-8111-111111111111';
 
+    const paymentMethodId =
+      'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+
     let result:
       DatabaseResult;
 
     const from =
+      jest.fn();
+
+    const rpc =
       jest.fn();
 
     function createQuery():
@@ -98,6 +104,7 @@ describe(
                   createAdminClient:
                     () => ({
                       from,
+                      rpc,
                     }),
                 },
               },
@@ -133,7 +140,7 @@ describe(
         data: [
           {
             id:
-              'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+              paymentMethodId,
 
             network:
               'Visa',
@@ -192,7 +199,7 @@ describe(
 
           {
             id:
-              'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+              paymentMethodId,
 
             network:
               'visa',
@@ -236,7 +243,7 @@ describe(
         data: [
           {
             id:
-              'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+              paymentMethodId,
 
             network:
               'visa',
@@ -266,6 +273,239 @@ describe(
 
         message:
           'A saved payment method could not be loaded safely.',
+      });
+    });
+
+    it('sets an active saved card as the default', async () => {
+      rpc.mockResolvedValue({
+        data: {
+          status:
+            'updated',
+
+          paymentMethodId,
+        },
+
+        error:
+          null,
+      });
+
+      await expect(
+        service.setDefault(
+          userId,
+          paymentMethodId,
+        ),
+      ).resolves.toEqual({
+        status:
+          'updated',
+
+        paymentMethodId,
+      });
+
+      expect(
+        rpc,
+      ).toHaveBeenCalledWith(
+        'set_default_payment_method',
+        {
+          p_user_id:
+            userId,
+
+          p_payment_method_id:
+            paymentMethodId,
+        },
+      );
+    });
+
+    it('treats setting the existing default card as idempotent', async () => {
+      rpc.mockResolvedValue({
+        data: {
+          status:
+            'existing',
+
+          paymentMethodId,
+        },
+
+        error:
+          null,
+      });
+
+      await expect(
+        service.setDefault(
+          userId,
+          paymentMethodId,
+        ),
+      ).resolves.toEqual({
+        status:
+          'updated',
+
+        paymentMethodId,
+      });
+    });
+
+    it('does not allow another user to set an unknown card as default', async () => {
+      rpc.mockResolvedValue({
+        data: {
+          status:
+            'not_found',
+        },
+
+        error:
+          null,
+      });
+
+      await expect(
+        service.setDefault(
+          userId,
+          paymentMethodId,
+        ),
+      ).rejects.toMatchObject({
+        status:
+          404,
+
+        message:
+          'Saved payment method not found.',
+      });
+    });
+
+    it('does not allow a disabled card to become default', async () => {
+      rpc.mockResolvedValue({
+        data: {
+          status:
+            'unavailable',
+        },
+
+        error:
+          null,
+      });
+
+      await expect(
+        service.setDefault(
+          userId,
+          paymentMethodId,
+        ),
+      ).rejects.toMatchObject({
+        status:
+          409,
+
+        message:
+          'This saved payment method is no longer available.',
+      });
+    });
+
+    it('removes a saved payment method without deleting payment history', async () => {
+      rpc.mockResolvedValue({
+        data: {
+          status:
+            'disabled',
+
+          paymentMethodId,
+
+          replacementDefaultId:
+            null,
+        },
+
+        error:
+          null,
+      });
+
+      await expect(
+        service.remove(
+          userId,
+          paymentMethodId,
+        ),
+      ).resolves.toEqual({
+        status:
+          'removed',
+
+        paymentMethodId,
+      });
+
+      expect(
+        rpc,
+      ).toHaveBeenCalledWith(
+        'disable_payment_method',
+        {
+          p_user_id:
+            userId,
+
+          p_payment_method_id:
+            paymentMethodId,
+        },
+      );
+    });
+
+    it('treats removing an already disabled card as idempotent', async () => {
+      rpc.mockResolvedValue({
+        data: {
+          status:
+            'existing',
+
+          paymentMethodId,
+        },
+
+        error:
+          null,
+      });
+
+      await expect(
+        service.remove(
+          userId,
+          paymentMethodId,
+        ),
+      ).resolves.toEqual({
+        status:
+          'removed',
+
+        paymentMethodId,
+      });
+    });
+
+    it('does not allow a user to remove another users saved card', async () => {
+      rpc.mockResolvedValue({
+        data: {
+          status:
+            'not_found',
+        },
+
+        error:
+          null,
+      });
+
+      await expect(
+        service.remove(
+          userId,
+          paymentMethodId,
+        ),
+      ).rejects.toMatchObject({
+        status:
+          404,
+
+        message:
+          'Saved payment method not found.',
+      });
+    });
+
+    it('returns 503 when payment-method management cannot be completed safely', async () => {
+      rpc.mockResolvedValue({
+        data:
+          null,
+
+        error: {
+          message:
+            'database unavailable',
+        },
+      });
+
+      await expect(
+        service.remove(
+          userId,
+          paymentMethodId,
+        ),
+      ).rejects.toMatchObject({
+        status:
+          503,
+
+        message:
+          'Unable to remove the saved payment method right now.',
       });
     });
   },

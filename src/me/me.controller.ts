@@ -6,6 +6,8 @@ import {
   Header,
   HttpCode,
   HttpStatus,
+  Param,
+  ParseUUIDPipe,
   Patch,
   Post,
   Req,
@@ -135,6 +137,84 @@ export class MeController {
   ) {
     return this.paymentMethodsService.list(
       request.authUser.id,
+    );
+  }
+
+  @Patch(
+    'payment-methods/:id/default',
+  )
+  @HttpCode(
+    HttpStatus.OK,
+  )
+  @Header(
+    'Cache-Control',
+    'no-store',
+  )
+  @Throttle({
+    default: {
+      limit:
+        10,
+      ttl:
+        60_000,
+    },
+  })
+  setDefaultPaymentMethod(
+    @Req()
+    request:
+      AuthenticatedRequest,
+
+    @Param(
+      'id',
+      new ParseUUIDPipe({
+        version:
+          '4',
+      }),
+    )
+    paymentMethodId:
+      string,
+  ) {
+    return this.paymentMethodsService.setDefault(
+      request.authUser.id,
+      paymentMethodId,
+    );
+  }
+
+  @Delete(
+    'payment-methods/:id',
+  )
+  @HttpCode(
+    HttpStatus.OK,
+  )
+  @Header(
+    'Cache-Control',
+    'no-store',
+  )
+  @Throttle({
+    default: {
+      limit:
+        10,
+      ttl:
+        60_000,
+    },
+  })
+  removePaymentMethod(
+    @Req()
+    request:
+      AuthenticatedRequest,
+
+    @Param(
+      'id',
+      new ParseUUIDPipe({
+        version:
+          '4',
+      }),
+    )
+    paymentMethodId:
+      string,
+  ) {
+    return this.paymentMethodsService.remove(
+      request.authUser.id,
+      paymentMethodId,
     );
   }
 

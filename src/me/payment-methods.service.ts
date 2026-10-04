@@ -1,5 +1,8 @@
 import {
+  BadRequestException,
+  ConflictException,
   Injectable,
+  NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { SupabaseService } from '../supabase/supabase.service';
@@ -13,6 +16,16 @@ type PaymentMethodRow = {
   last4: string;
   is_default: boolean;
   created_at: string;
+};
+
+type PaymentMethodManagementResult = {
+  status?: string;
+
+  paymentMethodId?: string;
+
+  replacementDefaultId?:
+    | string
+    | null;
 };
 
 export type SavedPaymentMethod = {
@@ -182,5 +195,152 @@ export class PaymentMethodsService {
             method,
         ),
     };
+  }
+
+  async setDefault(
+    userId: string,
+    paymentMethodId:
+      string,
+  ): Promise<{
+    status:
+      'updated';
+
+    paymentMethodId:
+      string;
+  }> {
+    const admin =
+      this.supabase.createAdminClient();
+
+    const {
+      data,
+      error,
+    } =
+      await admin.rpc(
+        'set_default_payment_method',
+        {
+          p_user_id:
+            userId,
+
+          p_payment_method_id:
+            paymentMethodId,
+        },
+      );
+
+    if (
+      error ||
+      !data
+    ) {
+      throw new ServiceUnavailableException(
+        'Unable to update the default payment method right now.',
+      );
+    }
+
+    const result =
+      data as
+        PaymentMethodManagementResult;
+
+    switch (
+      result.status
+    ) {
+      case 'updated':
+      case 'existing':
+        return {
+          status:
+            'updated',
+
+          paymentMethodId,
+        };
+
+      case 'not_found':
+        throw new NotFoundException(
+          'Saved payment method not found.',
+        );
+
+      case 'unavailable':
+        throw new ConflictException(
+          'This saved payment method is no longer available.',
+        );
+
+      case 'invalid':
+        throw new BadRequestException(
+          'Unable to update this payment method.',
+        );
+
+      default:
+        throw new ServiceUnavailableException(
+          'Unable to update the default payment method right now.',
+        );
+    }
+  }
+
+  async remove(
+    userId: string,
+    paymentMethodId:
+      string,
+  ): Promise<{
+    status:
+      'removed';
+
+    paymentMethodId:
+      string;
+  }> {
+    const admin =
+      this.supabase.createAdminClient();
+
+    const {
+      data,
+      error,
+    } =
+      await admin.rpc(
+        'disable_payment_method',
+        {
+          p_user_id:
+            userId,
+
+          p_payment_method_id:
+            paymentMethodId,
+        },
+      );
+
+    if (
+      error ||
+      !data
+    ) {
+      throw new ServiceUnavailableException(
+        'Unable to remove the saved payment method right now.',
+      );
+    }
+
+    const result =
+      data as
+        PaymentMethodManagementResult;
+
+    switch (
+      result.status
+    ) {
+      case 'disabled':
+      case 'existing':
+        return {
+          status:
+            'removed',
+
+          paymentMethodId,
+        };
+
+      case 'not_found':
+        throw new NotFoundException(
+          'Saved payment method not found.',
+        );
+
+      case 'invalid':
+        throw new BadRequestException(
+          'Unable to remove this payment method.',
+        );
+
+      default:
+        throw new ServiceUnavailableException(
+          'Unable to remove the saved payment method right now.',
+        );
+    }
   }
 }
