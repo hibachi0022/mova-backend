@@ -41,6 +41,9 @@ import { OutingsService } from './outings/outings.service';
 import { PaymentMethodSetupWebhookService } from './payments/payment-method-setup-webhook.service';
 import { PaystackWebhookController } from './payments/paystack-webhook.controller';
 import { PaystackWebhookService } from './payments/paystack-webhook.service';
+import { ReceivingAccountsController } from './receiving-accounts/receiving-accounts.controller';
+import { ReceivingAccountsManagementService } from './receiving-accounts/receiving-accounts-management.service';
+import { ReceivingAccountsService } from './receiving-accounts/receiving-accounts.service';
 import { SupabaseService } from './supabase/supabase.service';
 
 @Module({
@@ -73,6 +76,7 @@ import { SupabaseService } from './supabase/supabase.service';
     OutingsController,
     InvitesController,
     PaystackWebhookController,
+    ReceivingAccountsController,
   ],
 
   providers: [
@@ -85,6 +89,8 @@ import { SupabaseService } from './supabase/supabase.service';
     PaymentMethodsService,
     PaymentMethodSetupService,
     PaymentMethodSetupStatusService,
+    ReceivingAccountsService,
+    ReceivingAccountsManagementService,
     FriendsService,
     OutingsService,
     OutingsRouletteService,

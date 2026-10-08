@@ -11,12 +11,17 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Put,
   Req,
   UseGuards,
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { AuthGuard } from '../auth/auth.guard';
 import type { AuthenticatedRequest } from '../auth/auth.guard';
+import { ResolveReceivingAccountDto } from '../receiving-accounts/dto/resolve-receiving-account.dto';
+import { SaveReceivingAccountDto } from '../receiving-accounts/dto/save-receiving-account.dto';
+import { ReceivingAccountsManagementService } from '../receiving-accounts/receiving-accounts-management.service';
+import { ReceivingAccountsService } from '../receiving-accounts/receiving-accounts.service';
 import { AccountService } from './account.service';
 import { CredentialService } from './credential.service';
 import { CredentialChangeDto } from './dto/credential-change.dto';
@@ -61,6 +66,12 @@ export class MeController {
 
     private readonly paymentMethodSetupStatusService:
       PaymentMethodSetupStatusService,
+
+    private readonly receivingAccountsService:
+      ReceivingAccountsService,
+
+    private readonly receivingAccountsManagementService:
+      ReceivingAccountsManagementService,
   ) {}
 
   @Patch()
@@ -286,6 +297,183 @@ export class MeController {
     return this.paymentMethodsService.remove(
       request.authUser.id,
       paymentMethodId,
+    );
+  }
+
+  @Get(
+    'receiving-accounts',
+  )
+  @Header(
+    'Cache-Control',
+    'no-store',
+  )
+  @Throttle({
+    default: {
+      limit:
+        30,
+      ttl:
+        60_000,
+    },
+  })
+  receivingAccounts(
+    @Req()
+    request:
+      AuthenticatedRequest,
+  ) {
+    return this.receivingAccountsManagementService.list(
+      request.authUser.id,
+    );
+  }
+
+  @Post(
+    'receiving-accounts',
+  )
+  @HttpCode(
+    HttpStatus.OK,
+  )
+  @Header(
+    'Cache-Control',
+    'no-store',
+  )
+  @Throttle({
+    default: {
+      limit:
+        10,
+      ttl:
+        60_000,
+    },
+  })
+  saveReceivingAccount(
+    @Req()
+    request:
+      AuthenticatedRequest,
+
+    @Body()
+    input:
+      SaveReceivingAccountDto,
+
+    @Headers(
+      'idempotency-key',
+    )
+    idempotencyKey:
+      | string
+      | undefined,
+  ) {
+    return this.receivingAccountsManagementService.save(
+      request.authUser.id,
+      input,
+      idempotencyKey,
+    );
+  }
+
+  @Put(
+    'receiving-accounts/:id/default',
+  )
+  @HttpCode(
+    HttpStatus.OK,
+  )
+  @Header(
+    'Cache-Control',
+    'no-store',
+  )
+  @Throttle({
+    default: {
+      limit:
+        10,
+      ttl:
+        60_000,
+    },
+  })
+  setDefaultReceivingAccount(
+    @Req()
+    request:
+      AuthenticatedRequest,
+
+    @Param(
+      'id',
+      new ParseUUIDPipe({
+        version:
+          '4',
+      }),
+    )
+    receivingAccountId:
+      string,
+  ) {
+    return this.receivingAccountsManagementService.setDefault(
+      request.authUser.id,
+      receivingAccountId,
+    );
+  }
+
+  @Delete(
+    'receiving-accounts/:id',
+  )
+  @HttpCode(
+    HttpStatus.OK,
+  )
+  @Header(
+    'Cache-Control',
+    'no-store',
+  )
+  @Throttle({
+    default: {
+      limit:
+        10,
+      ttl:
+        60_000,
+    },
+  })
+  removeReceivingAccount(
+    @Req()
+    request:
+      AuthenticatedRequest,
+
+    @Param(
+      'id',
+      new ParseUUIDPipe({
+        version:
+          '4',
+      }),
+    )
+    receivingAccountId:
+      string,
+  ) {
+    return this.receivingAccountsManagementService.remove(
+      request.authUser.id,
+      receivingAccountId,
+    );
+  }
+
+  @Post(
+    'receiving-accounts/resolve',
+  )
+  @HttpCode(
+    HttpStatus.OK,
+  )
+  @Header(
+    'Cache-Control',
+    'no-store',
+  )
+  @Throttle({
+    default: {
+      limit:
+        10,
+      ttl:
+        60_000,
+    },
+  })
+  resolveReceivingAccount(
+    @Req()
+    request:
+      AuthenticatedRequest,
+
+    @Body()
+    input:
+      ResolveReceivingAccountDto,
+  ) {
+    return this.receivingAccountsService.resolve(
+      request.authUser.id,
+      input,
     );
   }
 
