@@ -4,6 +4,7 @@ import {
   Delete,
   Get,
   Header,
+  Headers,
   HttpCode,
   HttpStatus,
   Param,
@@ -23,6 +24,7 @@ import { DeleteAccountDto } from './dto/delete-account.dto';
 import { SocialSettingsDto } from './dto/social-settings.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { PaymentHistoryService } from './payment-history.service';
+import { PaymentMethodSetupService } from './payment-method-setup.service';
 import { PaymentMethodsService } from './payment-methods.service';
 import { PaymentRecipientsService } from './payment-recipients.service';
 import { ProfileService } from './profile.service';
@@ -52,6 +54,9 @@ export class MeController {
 
     private readonly paymentMethodsService:
       PaymentMethodsService,
+
+    private readonly paymentMethodSetupService:
+      PaymentMethodSetupService,
   ) {}
 
   @Patch()
@@ -137,6 +142,43 @@ export class MeController {
   ) {
     return this.paymentMethodsService.list(
       request.authUser.id,
+    );
+  }
+
+  @Post(
+    'payment-methods/setup',
+  )
+  @HttpCode(
+    HttpStatus.OK,
+  )
+  @Header(
+    'Cache-Control',
+    'no-store',
+  )
+  @Throttle({
+    default: {
+      limit:
+        5,
+      ttl:
+        60_000,
+    },
+  })
+  setupPaymentMethod(
+    @Req()
+    request:
+      AuthenticatedRequest,
+
+    @Headers(
+      'idempotency-key',
+    )
+    idempotencyKey:
+      | string
+      | undefined,
+  ) {
+    return this.paymentMethodSetupService.create(
+      request.authUser.id,
+      request.authUser.email,
+      idempotencyKey,
     );
   }
 

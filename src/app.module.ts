@@ -24,6 +24,7 @@ import { AccountService } from './me/account.service';
 import { CredentialService } from './me/credential.service';
 import { MeController } from './me/me.controller';
 import { PaymentHistoryService } from './me/payment-history.service';
+import { PaymentMethodSetupService } from './me/payment-method-setup.service';
 import { PaymentMethodsService } from './me/payment-methods.service';
 import { PaymentRecipientsService } from './me/payment-recipients.service';
 import { ProfileService } from './me/profile.service';
@@ -36,6 +37,7 @@ import { OutingsPaymentsService } from './outings/outings-payments.service';
 import { OutingsRouletteService } from './outings/outings-roulette.service';
 import { OutingsSavedCardPaymentsService } from './outings/outings-saved-card-payments.service';
 import { OutingsService } from './outings/outings.service';
+import { PaymentMethodSetupWebhookService } from './payments/payment-method-setup-webhook.service';
 import { PaystackWebhookController } from './payments/paystack-webhook.controller';
 import { PaystackWebhookService } from './payments/paystack-webhook.service';
 import { SupabaseService } from './supabase/supabase.service';
@@ -80,6 +82,7 @@ import { SupabaseService } from './supabase/supabase.service';
     PaymentRecipientsService,
     PaymentHistoryService,
     PaymentMethodsService,
+    PaymentMethodSetupService,
     FriendsService,
     OutingsService,
     OutingsRouletteService,
@@ -87,6 +90,7 @@ import { SupabaseService } from './supabase/supabase.service';
     OutingsPaymentsService,
     OutingsSavedCardPaymentsService,
     OutingsPaymentReceiptsService,
+    PaymentMethodSetupWebhookService,
     PaystackWebhookService,
     CredentialService,
     AccountService,

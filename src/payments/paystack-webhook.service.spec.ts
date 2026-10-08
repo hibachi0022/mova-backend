@@ -2,6 +2,7 @@ import { Test } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import { createHmac } from 'node:crypto';
 import { SupabaseService } from '../supabase/supabase.service';
+import { PaymentMethodSetupWebhookService } from './payment-method-setup-webhook.service';
 import { PaystackWebhookService } from './paystack-webhook.service';
 
 describe(
@@ -21,6 +22,15 @@ describe(
 
     const originalFetch =
       globalThis.fetch;
+
+    const setupIsRefundEvent =
+      jest.fn();
+
+    const setupHandleRefundEvent =
+      jest.fn();
+
+    const setupHandleChargeSuccess =
+      jest.fn();
 
     function sign(
       rawBody: Buffer,
@@ -197,6 +207,10 @@ describe(
       async () => {
         jest.resetAllMocks();
 
+        setupIsRefundEvent.mockReturnValue(
+          false,
+        );
+
         globalThis.fetch =
           fetchMock as unknown as
             typeof fetch;
@@ -236,6 +250,22 @@ describe(
                     () => ({
                       rpc,
                     }),
+                },
+              },
+
+              {
+                provide:
+                  PaymentMethodSetupWebhookService,
+
+                useValue: {
+                  isRefundEvent:
+                    setupIsRefundEvent,
+
+                  handleRefundEvent:
+                    setupHandleRefundEvent,
+
+                  handleChargeSuccess:
+                    setupHandleChargeSuccess,
                 },
               },
             ],
@@ -303,6 +333,140 @@ describe(
         status:
           'ignored',
       });
+
+      expect(
+        fetchMock,
+      ).not.toHaveBeenCalled();
+
+      expect(
+        rpc,
+      ).not.toHaveBeenCalled();
+    });
+
+    it('routes standalone saved-card verification charges before outing settlement', async () => {
+      const reference =
+        'MOVA-CARD-aaaaaaaaaaaa4aaa8aaaaaaaaaaaaaaa';
+
+      const rawBody =
+        webhookBody(
+          'charge.success',
+          reference,
+        );
+
+      setupHandleChargeSuccess.mockResolvedValue({
+        received:
+          true,
+
+        status:
+          'card_setup_completed',
+      });
+
+      await expect(
+        service.handle(
+          rawBody,
+          sign(
+            rawBody,
+          ),
+        ),
+      ).resolves.toEqual({
+        received:
+          true,
+
+        status:
+          'card_setup_completed',
+      });
+
+      expect(
+        setupHandleChargeSuccess,
+      ).toHaveBeenCalledTimes(
+        1,
+      );
+
+      expect(
+        setupHandleChargeSuccess,
+      ).toHaveBeenCalledWith(
+        reference,
+      );
+
+      expect(
+        fetchMock,
+      ).not.toHaveBeenCalled();
+
+      expect(
+        rpc,
+      ).not.toHaveBeenCalled();
+    });
+
+    it('routes Paystack refund events to standalone card setup handling', async () => {
+      const reference =
+        'MOVA-CARD-aaaaaaaaaaaa4aaa8aaaaaaaaaaaaaaa';
+
+      const data = {
+        status:
+          'processed',
+
+        transaction_reference:
+          reference,
+
+        refund_reference:
+          'refund-test-reference',
+      };
+
+      const rawBody =
+        Buffer.from(
+          JSON.stringify({
+            event:
+              'refund.processed',
+
+            data,
+          }),
+          'utf8',
+        );
+
+      setupIsRefundEvent.mockImplementation(
+        (
+          event:
+            string,
+        ) =>
+          event ===
+          'refund.processed',
+      );
+
+      setupHandleRefundEvent.mockResolvedValue({
+        received:
+          true,
+
+        status:
+          'card_setup_refunded',
+      });
+
+      await expect(
+        service.handle(
+          rawBody,
+          sign(
+            rawBody,
+          ),
+        ),
+      ).resolves.toEqual({
+        received:
+          true,
+
+        status:
+          'card_setup_refunded',
+      });
+
+      expect(
+        setupIsRefundEvent,
+      ).toHaveBeenCalledWith(
+        'refund.processed',
+      );
+
+      expect(
+        setupHandleRefundEvent,
+      ).toHaveBeenCalledWith(
+        'refund.processed',
+        data,
+      );
 
       expect(
         fetchMock,

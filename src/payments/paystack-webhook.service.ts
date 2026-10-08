@@ -12,12 +12,14 @@ import {
   timingSafeEqual,
 } from 'node:crypto';
 import { SupabaseService } from '../supabase/supabase.service';
+import { PaymentMethodSetupWebhookService } from './payment-method-setup-webhook.service';
 
 type PaystackWebhookEvent = {
   event?: unknown;
 
   data?: {
     reference?: unknown;
+    [key: string]: unknown;
   };
 };
 
@@ -122,6 +124,10 @@ export type PaystackWebhookResult = {
     | 'conflict'
     | 'reconciliation_required'
     | 'reconciliation_resolved'
+    | 'card_setup_completed'
+    | 'card_setup_refunded'
+    | 'card_setup_failed'
+    | 'card_setup_refund_pending'
     | 'invalid';
 };
 
@@ -141,6 +147,9 @@ export class PaystackWebhookService {
 
     private readonly supabase:
       SupabaseService,
+
+    private readonly paymentMethodSetups:
+      PaymentMethodSetupWebhookService,
   ) {
     this.secretKey =
       this.config
@@ -192,6 +201,19 @@ export class PaystackWebhookService {
       );
 
     if (
+      typeof event.event ===
+        'string' &&
+      this.paymentMethodSetups.isRefundEvent(
+        event.event,
+      )
+    ) {
+      return this.paymentMethodSetups.handleRefundEvent(
+        event.event,
+        event.data,
+      );
+    }
+
+    if (
       event.event !==
       'charge.success'
     ) {
@@ -217,6 +239,16 @@ export class PaystackWebhookService {
     ) {
       throw new BadRequestException(
         'Webhook payment reference is invalid.',
+      );
+    }
+
+    if (
+      reference.startsWith(
+        'MOVA-CARD-',
+      )
+    ) {
+      return this.paymentMethodSetups.handleChargeSuccess(
+        reference,
       );
     }
 
