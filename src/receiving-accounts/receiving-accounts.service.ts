@@ -546,10 +546,15 @@ export class ReceivingAccountsService {
     }
 
     const accountName =
-      await this.resolveAccountName(
+      this.isPaystackTestTransferFixture(
         input.accountNumber,
         bank.code,
-      );
+      )
+        ? 'MOVA TEST RECIPIENT'
+        : await this.resolveAccountName(
+            input.accountNumber,
+            bank.code,
+          );
 
     const recipientCode =
       await this.createTransferRecipient(
@@ -1314,6 +1319,37 @@ export class ReceivingAccountsService {
       message.includes(
         'limit',
       )
+    );
+  }
+
+  private isPaystackTestTransferFixture(
+    accountNumber:
+      string,
+
+    bankCode:
+      string,
+  ) {
+    /*
+     * Paystack's documented Nigerian Test Mode transfer account.
+     *
+     * This exists only to keep development/testing possible when
+     * Paystack's Test Mode bank-resolve quota has been exhausted.
+     *
+     * IMPORTANT:
+     * - Never enabled for sk_live_.
+     * - Only the exact documented test account is accepted.
+     * - We still create a real Paystack Test Mode transfer recipient,
+     *   so the saved provider recipient code can be used for the
+     *   subsequent test payout.
+     */
+    return (
+      this.secretKey.startsWith(
+        'sk_test_',
+      ) &&
+      bankCode ===
+        '057' &&
+      accountNumber ===
+        '0000000000'
     );
   }
 

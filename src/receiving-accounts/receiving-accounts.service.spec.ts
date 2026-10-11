@@ -629,6 +629,270 @@ describe(
       );
     });
 
+    it('uses the Paystack Zenith transfer fixture in test mode without calling bank resolve', async () => {
+      const fetchMock =
+        global.fetch as
+          jest.Mock;
+
+      fetchMock
+        .mockResolvedValueOnce(
+          response(
+            200,
+            {
+              status:
+                true,
+
+              data: [
+                {
+                  name:
+                    'Zenith Bank',
+
+                  code:
+                    '057',
+
+                  active:
+                    true,
+
+                  is_deleted:
+                    false,
+
+                  country:
+                    'Nigeria',
+
+                  currency:
+                    'NGN',
+
+                  type:
+                    'nuban',
+                },
+              ],
+
+              meta: {
+                next:
+                  null,
+              },
+            },
+          ),
+        )
+        .mockResolvedValueOnce(
+          response(
+            200,
+            {
+              status:
+                true,
+
+              data: {
+                active:
+                  true,
+
+                type:
+                  'nuban',
+
+                currency:
+                  'NGN',
+
+                recipient_code:
+                  'RCP_test_zenith',
+
+                details: {
+                  account_number:
+                    '0000000000',
+
+                  account_name:
+                    null,
+
+                  bank_code:
+                    '057',
+
+                  bank_name:
+                    'Zenith Bank',
+                },
+              },
+            },
+          ),
+        );
+
+      rpc.mockResolvedValue({
+        data: {
+          status:
+            'created',
+
+          verificationId,
+
+          accountName:
+            'MOVA TEST RECIPIENT',
+
+          bankName:
+            'Zenith Bank',
+
+          last4:
+            '0000',
+
+          country:
+            'NG',
+
+          currency:
+            'NGN',
+
+          expiresAt:
+            new Date(
+              Date.now() +
+                10 * 60_000,
+            ).toISOString(),
+        },
+
+        error:
+          null,
+      });
+
+      const result =
+        await service.resolve(
+          userId,
+          {
+            country:
+              'NG',
+
+            bankCode:
+              '057',
+
+            accountNumber:
+              '0000000000',
+
+            routingDetails:
+              {},
+          },
+        );
+
+      expect(
+        result,
+      ).toMatchObject({
+        verificationId,
+
+        accountName:
+          'MOVA TEST RECIPIENT',
+
+        bankName:
+          'Zenith Bank',
+
+        last4:
+          '0000',
+
+        country:
+          'NG',
+
+        currency:
+          'NGN',
+      });
+
+      expect(
+        fetchMock,
+      ).toHaveBeenCalledTimes(
+        2,
+      );
+
+      const urls =
+        fetchMock.mock.calls.map(
+          (
+            call,
+          ) =>
+            String(
+              call[0],
+            ),
+        );
+
+      expect(
+        urls.some(
+          (
+            url,
+          ) =>
+            url.includes(
+              '/bank/resolve',
+            ),
+        ),
+      ).toBe(
+        false,
+      );
+
+      expect(
+        urls[1],
+      ).toBe(
+        'https://api.paystack.co/transferrecipient',
+      );
+
+      const recipientOptions =
+        fetchMock.mock
+          .calls[1][1] as
+          RequestInit;
+
+      const recipientBody =
+        JSON.parse(
+          recipientOptions.body as
+            string,
+        ) as {
+          type:
+            string;
+
+          name:
+            string;
+
+          account_number:
+            string;
+
+          bank_code:
+            string;
+
+          currency:
+            string;
+        };
+
+      expect(
+        recipientBody,
+      ).toEqual({
+        type:
+          'nuban',
+
+        name:
+          'MOVA TEST RECIPIENT',
+
+        account_number:
+          '0000000000',
+
+        bank_code:
+          '057',
+
+        currency:
+          'NGN',
+
+        description:
+          'MOVA receiving account',
+      });
+
+      expect(
+        rpc,
+      ).toHaveBeenCalledWith(
+        'record_receiving_account_verification',
+        {
+          p_user_id:
+            userId,
+
+          p_provider_recipient_code:
+            'RCP_test_zenith',
+
+          p_bank_code:
+            '057',
+
+          p_bank_name:
+            'Zenith Bank',
+
+          p_account_name:
+            'MOVA TEST RECIPIENT',
+
+          p_last4:
+            '0000',
+        },
+      );
+    });
+
     it('does not create a transfer recipient when Paystack cannot resolve the account', async () => {
       const fetchMock =
         global.fetch as
