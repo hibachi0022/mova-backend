@@ -7,6 +7,7 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { createHash } from 'crypto';
 import { SupabaseService } from '../supabase/supabase.service';
 
 type BeginPayoutResult = {
@@ -23,6 +24,13 @@ type RecordPayoutResult = {
   payoutId?: string;
   payoutStatus?: string;
   providerStatus?: string;
+};
+
+type PayoutSettlementResult = {
+  status?: string;
+  payoutStatus?: string;
+  payoutId?: string;
+  reason?: string;
 };
 
 type PaystackTransferResponse = {
@@ -419,6 +427,17 @@ export class TransferPayoutService {
       verification.kind ===
       'found'
     ) {
+      if (
+        this.isTerminalProviderStatus(
+          verification.transfer.status,
+        )
+      ) {
+        return this.finalizeVerifiedProviderTransfer(
+          prepared,
+          verification.transfer,
+        );
+      }
+
       return this.recordProviderTransfer(
         prepared,
         verification.transfer,
@@ -714,6 +733,194 @@ export class TransferPayoutService {
         timeout,
       );
     }
+  }
+
+  private async finalizeVerifiedProviderTransfer(
+    prepared:
+      PreparedPayout,
+
+    transfer:
+      ProviderTransfer & {
+        status:
+          | 'success'
+          | 'failed'
+          | 'reversed';
+      },
+  ): Promise<
+    TransferPayoutResult
+  > {
+    const eventType =
+      `transfer.${transfer.status}`;
+
+    const payloadHash =
+      createHash(
+        'sha256',
+      )
+        .update(
+          [
+            'mova-payout-reconcile-v1',
+            transfer.reference,
+            transfer.transferCode,
+            transfer.transferId,
+            String(
+              transfer.amountMinor,
+            ),
+            transfer.currency,
+            transfer.status,
+          ].join(
+            '|',
+          ),
+          'utf8',
+        )
+        .digest(
+          'hex',
+        );
+
+    const admin =
+      this.supabase.createAdminClient();
+
+    const {
+      data,
+      error,
+    } =
+      await admin.rpc(
+        'complete_friend_transfer_payout_from_provider',
+        {
+          p_provider:
+            'paystack',
+
+          p_event_type:
+            eventType,
+
+          p_provider_reference:
+            prepared.providerReference,
+
+          p_provider_transfer_code:
+            transfer.transferCode,
+
+          p_provider_transfer_id:
+            transfer.transferId,
+
+          p_amount_minor:
+            transfer.amountMinor,
+
+          p_currency:
+            transfer.currency,
+
+          p_provider_status:
+            transfer.status,
+
+          p_payload_hash:
+            payloadHash,
+        },
+      );
+
+    if (
+      error ||
+      !data
+    ) {
+      throw new ServiceUnavailableException(
+        'The payout was verified but MOVA could not finalize it safely.',
+      );
+    }
+
+    const result =
+      data as
+        PayoutSettlementResult;
+
+    switch (
+      result.status
+    ) {
+      case 'finalized':
+      case 'already_finalized':
+        return this.terminalPayoutResult(
+          result.payoutStatus ??
+            transfer.status,
+        );
+
+      case 'reconciliation_required':
+        this.logger.warn(
+          `Verified payout requires reconciliation${
+            result.reason
+              ? `: ${result.reason}`
+              : '.'
+          }`,
+        );
+
+        return {
+          status:
+            'reconciliation_required',
+        };
+
+      case 'not_found':
+        throw new NotFoundException(
+          'Transfer payout not found.',
+        );
+
+      case 'conflict':
+        throw new ConflictException(
+          'The verified provider payout conflicts with the stored MOVA payout.',
+        );
+
+      case 'invalid':
+        throw new BadRequestException(
+          'The verified provider payout could not be finalized safely.',
+        );
+
+      default:
+        throw new ServiceUnavailableException(
+          'Unable to determine the verified payout settlement state.',
+        );
+    }
+  }
+
+  private terminalPayoutResult(
+    status:
+      string,
+  ): TransferPayoutResult {
+    switch (
+      status
+    ) {
+      case 'success':
+        return {
+          status:
+            'completed',
+        };
+
+      case 'failed':
+        return {
+          status:
+            'failed',
+        };
+
+      case 'reversed':
+        return {
+          status:
+            'reversed',
+        };
+
+      default:
+        throw new ServiceUnavailableException(
+          'The finalized payout status could not be loaded safely.',
+        );
+    }
+  }
+
+  private isTerminalProviderStatus(
+    status:
+      ProviderTransfer['status'],
+  ): status is
+    | 'success'
+    | 'failed'
+    | 'reversed' {
+    return (
+      status ===
+        'success' ||
+      status ===
+        'failed' ||
+      status ===
+        'reversed'
+    );
   }
 
   private async recordProviderTransfer(
