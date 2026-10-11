@@ -12,6 +12,8 @@ import {
   timingSafeEqual,
 } from 'node:crypto';
 import { SupabaseService } from '../supabase/supabase.service';
+import { FriendTransferPayoutWebhookService } from './friend-transfer-payout-webhook.service';
+import { FriendTransferWebhookService } from './friend-transfer-webhook.service';
 import { PaymentMethodSetupWebhookService } from './payment-method-setup-webhook.service';
 
 type PaystackWebhookEvent = {
@@ -128,6 +130,14 @@ export type PaystackWebhookResult = {
     | 'card_setup_refunded'
     | 'card_setup_failed'
     | 'card_setup_refund_pending'
+    | 'transfer_payment_completed'
+    | 'transfer_payment_already_completed'
+    | 'transfer_payment_reconciliation_required'
+    | 'transfer_payout_completed'
+    | 'transfer_payout_failed'
+    | 'transfer_payout_reversed'
+    | 'transfer_payout_already_finalized'
+    | 'transfer_payout_reconciliation_required'
     | 'invalid';
 };
 
@@ -150,6 +160,12 @@ export class PaystackWebhookService {
 
     private readonly paymentMethodSetups:
       PaymentMethodSetupWebhookService,
+
+    private readonly friendTransfers:
+      FriendTransferWebhookService,
+
+    private readonly friendTransferPayouts:
+      FriendTransferPayoutWebhookService,
   ) {
     this.secretKey =
       this.config
@@ -214,6 +230,20 @@ export class PaystackWebhookService {
     }
 
     if (
+      typeof event.event ===
+        'string' &&
+      this.friendTransferPayouts.isTransferEvent(
+        event.event,
+      )
+    ) {
+      return this.friendTransferPayouts.handleTransferEvent(
+        event.event,
+        event.data,
+        payloadHash,
+      );
+    }
+
+    if (
       event.event !==
       'charge.success'
     ) {
@@ -249,6 +279,22 @@ export class PaystackWebhookService {
     ) {
       return this.paymentMethodSetups.handleChargeSuccess(
         reference,
+      );
+    }
+
+    const normalizedReference =
+      reference
+        .trim()
+        .toLowerCase();
+
+    if (
+      normalizedReference.startsWith(
+        'mova-ft-',
+      )
+    ) {
+      return this.friendTransfers.handleChargeSuccess(
+        normalizedReference,
+        payloadHash,
       );
     }
 

@@ -2,6 +2,8 @@ import { Test } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import { createHmac } from 'node:crypto';
 import { SupabaseService } from '../supabase/supabase.service';
+import { FriendTransferPayoutWebhookService } from './friend-transfer-payout-webhook.service';
+import { FriendTransferWebhookService } from './friend-transfer-webhook.service';
 import { PaymentMethodSetupWebhookService } from './payment-method-setup-webhook.service';
 import { PaystackWebhookService } from './paystack-webhook.service';
 
@@ -30,6 +32,15 @@ describe(
       jest.fn();
 
     const setupHandleChargeSuccess =
+      jest.fn();
+
+    const transferHandleChargeSuccess =
+      jest.fn();
+
+    const payoutIsTransferEvent =
+      jest.fn();
+
+    const payoutHandleTransferEvent =
       jest.fn();
 
     function sign(
@@ -211,6 +222,19 @@ describe(
           false,
         );
 
+        payoutIsTransferEvent.mockImplementation(
+          (
+            event:
+              string,
+          ) =>
+            event ===
+              'transfer.success' ||
+            event ===
+              'transfer.failed' ||
+            event ===
+              'transfer.reversed',
+        );
+
         globalThis.fetch =
           fetchMock as unknown as
             typeof fetch;
@@ -268,6 +292,29 @@ describe(
                     setupHandleChargeSuccess,
                 },
               },
+
+              {
+                provide:
+                  FriendTransferWebhookService,
+
+                useValue: {
+                  handleChargeSuccess:
+                    transferHandleChargeSuccess,
+                },
+              },
+
+              {
+                provide:
+                  FriendTransferPayoutWebhookService,
+
+                useValue: {
+                  isTransferEvent:
+                    payoutIsTransferEvent,
+
+                  handleTransferEvent:
+                    payoutHandleTransferEvent,
+                },
+              },
             ],
           }).compile();
 
@@ -316,7 +363,7 @@ describe(
     it('acknowledges signed Paystack events that MOVA does not process', async () => {
       const rawBody =
         webhookBody(
-          'transfer.success',
+          'subscription.create',
         );
 
       await expect(
@@ -333,6 +380,73 @@ describe(
         status:
           'ignored',
       });
+
+      expect(
+        fetchMock,
+      ).not.toHaveBeenCalled();
+
+      expect(
+        rpc,
+      ).not.toHaveBeenCalled();
+    });
+
+    it('routes signed Paystack transfer events to friend-transfer payout settlement', async () => {
+      const reference =
+        'mova-po-aaaaaaaaaaaa4aaa8aaaaaaaaaaaaaaa';
+
+      const data = {
+        reference,
+      };
+
+      const rawBody =
+        Buffer.from(
+          JSON.stringify({
+            event:
+              'transfer.success',
+
+            data,
+          }),
+          'utf8',
+        );
+
+      payoutHandleTransferEvent.mockResolvedValue({
+        received:
+          true,
+
+        status:
+          'transfer_payout_completed',
+      });
+
+      await expect(
+        service.handle(
+          rawBody,
+          sign(
+            rawBody,
+          ),
+        ),
+      ).resolves.toEqual({
+        received:
+          true,
+
+        status:
+          'transfer_payout_completed',
+      });
+
+      expect(
+        payoutIsTransferEvent,
+      ).toHaveBeenCalledWith(
+        'transfer.success',
+      );
+
+      expect(
+        payoutHandleTransferEvent,
+      ).toHaveBeenCalledWith(
+        'transfer.success',
+        data,
+        expect.stringMatching(
+          /^[0-9a-f]{64}$/,
+        ),
+      );
 
       expect(
         fetchMock,
@@ -386,6 +500,63 @@ describe(
         setupHandleChargeSuccess,
       ).toHaveBeenCalledWith(
         reference,
+      );
+
+      expect(
+        fetchMock,
+      ).not.toHaveBeenCalled();
+
+      expect(
+        rpc,
+      ).not.toHaveBeenCalled();
+    });
+
+    it('routes friend-transfer saved-card charges before outing settlement', async () => {
+      const reference =
+        'mova-ft-aaaaaaaaaaaa4aaa8aaaaaaaaaaaaaaa';
+
+      const rawBody =
+        webhookBody(
+          'charge.success',
+          reference,
+        );
+
+      transferHandleChargeSuccess.mockResolvedValue({
+        received:
+          true,
+
+        status:
+          'transfer_payment_completed',
+      });
+
+      await expect(
+        service.handle(
+          rawBody,
+          sign(
+            rawBody,
+          ),
+        ),
+      ).resolves.toEqual({
+        received:
+          true,
+
+        status:
+          'transfer_payment_completed',
+      });
+
+      expect(
+        transferHandleChargeSuccess,
+      ).toHaveBeenCalledTimes(
+        1,
+      );
+
+      expect(
+        transferHandleChargeSuccess,
+      ).toHaveBeenCalledWith(
+        reference,
+        expect.stringMatching(
+          /^[0-9a-f]{64}$/,
+        ),
       );
 
       expect(

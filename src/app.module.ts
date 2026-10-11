@@ -38,6 +38,8 @@ import { OutingsPaymentsService } from './outings/outings-payments.service';
 import { OutingsRouletteService } from './outings/outings-roulette.service';
 import { OutingsSavedCardPaymentsService } from './outings/outings-saved-card-payments.service';
 import { OutingsService } from './outings/outings.service';
+import { FriendTransferPayoutWebhookService } from './payments/friend-transfer-payout-webhook.service';
+import { FriendTransferWebhookService } from './payments/friend-transfer-webhook.service';
 import { PaymentMethodSetupWebhookService } from './payments/payment-method-setup-webhook.service';
 import { PaystackWebhookController } from './payments/paystack-webhook.controller';
 import { PaystackWebhookService } from './payments/paystack-webhook.service';
@@ -45,6 +47,10 @@ import { ReceivingAccountsController } from './receiving-accounts/receiving-acco
 import { ReceivingAccountsManagementService } from './receiving-accounts/receiving-accounts-management.service';
 import { ReceivingAccountsService } from './receiving-accounts/receiving-accounts.service';
 import { SupabaseService } from './supabase/supabase.service';
+import { TransferCheckoutService } from './transfers/transfer-checkout.service';
+import { TransferPayoutService } from './transfers/transfer-payout.service';
+import { TransfersController } from './transfers/transfers.controller';
+import { TransfersService } from './transfers/transfers.service';
 
 @Module({
   imports: [
@@ -77,6 +83,7 @@ import { SupabaseService } from './supabase/supabase.service';
     InvitesController,
     PaystackWebhookController,
     ReceivingAccountsController,
+    TransfersController,
   ],
 
   providers: [
@@ -91,6 +98,9 @@ import { SupabaseService } from './supabase/supabase.service';
     PaymentMethodSetupStatusService,
     ReceivingAccountsService,
     ReceivingAccountsManagementService,
+    TransfersService,
+    TransferCheckoutService,
+    TransferPayoutService,
     FriendsService,
     OutingsService,
     OutingsRouletteService,
@@ -98,6 +108,8 @@ import { SupabaseService } from './supabase/supabase.service';
     OutingsPaymentsService,
     OutingsSavedCardPaymentsService,
     OutingsPaymentReceiptsService,
+    FriendTransferWebhookService,
+    FriendTransferPayoutWebhookService,
     PaymentMethodSetupWebhookService,
     PaystackWebhookService,
     CredentialService,
