@@ -5,6 +5,8 @@ import {
   Headers,
   HttpCode,
   HttpStatus,
+  Param,
+  ParseUUIDPipe,
   Post,
   Req,
   UseGuards,
@@ -15,6 +17,7 @@ import type { AuthenticatedRequest } from '../auth/auth.guard';
 import { CreateTransferQuoteDto } from './dto/create-transfer-quote.dto';
 import { TransferCheckoutDto } from './dto/transfer-checkout.dto';
 import { TransferCheckoutService } from './transfer-checkout.service';
+import { TransferPayoutService } from './transfer-payout.service';
 import { TransfersService } from './transfers.service';
 
 @Controller(
@@ -30,6 +33,9 @@ export class TransfersController {
 
     private readonly checkout:
       TransferCheckoutService,
+
+    private readonly payouts:
+      TransferPayoutService,
   ) {}
 
   @Post(
@@ -62,6 +68,45 @@ export class TransfersController {
     return this.transfers.createQuote(
       request.authUser.id,
       input,
+    );
+  }
+
+  @Post(
+    ':paymentIntentId/reconcile-payout',
+  )
+  @HttpCode(
+    HttpStatus.OK,
+  )
+  @Header(
+    'Cache-Control',
+    'no-store',
+  )
+  @Throttle({
+    default: {
+      limit:
+        10,
+      ttl:
+        60_000,
+    },
+  })
+  reconcilePayout(
+    @Req()
+    request:
+      AuthenticatedRequest,
+
+    @Param(
+      'paymentIntentId',
+      new ParseUUIDPipe({
+        version:
+          '4',
+      }),
+    )
+    paymentIntentId:
+      string,
+  ) {
+    return this.payouts.reconcileForUser(
+      request.authUser.id,
+      paymentIntentId,
     );
   }
 
