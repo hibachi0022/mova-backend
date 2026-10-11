@@ -1,5 +1,7 @@
 import {
   BadRequestException,
+  HttpException,
+  HttpStatus,
   Injectable,
   Logger,
   ServiceUnavailableException,
@@ -684,12 +686,25 @@ export class ReceivingAccountsService {
     }
 
     if (
+      response.status ===
+        HttpStatus.TOO_MANY_REQUESTS &&
+      this.isTestModeResolveLimit(
+        body?.message,
+      )
+    ) {
+      throw new HttpException(
+        'Paystack test-mode bank verification limit reached. Use a Paystack test bank account and try again.',
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+
+    if (
       response.status >=
         400 &&
       response.status <
         500 &&
       response.status !==
-        429
+        HttpStatus.TOO_MANY_REQUESTS
     ) {
       throw new UnprocessableEntityException(
         'We could not verify this bank account. Check the bank and account number.',
@@ -1271,6 +1286,35 @@ export class ReceivingAccountsService {
 
     return cleaned ||
       'unknown';
+  }
+
+  private isTestModeResolveLimit(
+    value:
+      unknown,
+  ) {
+    if (
+      typeof value !==
+        'string'
+    ) {
+      return false;
+    }
+
+    const message =
+      value
+        .trim()
+        .toLowerCase();
+
+    return (
+      message.includes(
+        'test mode',
+      ) &&
+      message.includes(
+        'bank resolve',
+      ) &&
+      message.includes(
+        'limit',
+      )
+    );
   }
 
   private isConfigured() {
