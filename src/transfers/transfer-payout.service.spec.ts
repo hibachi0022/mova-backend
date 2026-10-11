@@ -487,6 +487,147 @@ describe(
       );
     });
 
+    it.each([
+      [
+        'success',
+        'completed',
+      ],
+      [
+        'failed',
+        'failed',
+      ],
+      [
+        'reversed',
+        'reversed',
+      ],
+    ])(
+      'finalizes an independently verified %s payout during reconciliation',
+      async (
+        providerStatus,
+        expectedStatus,
+      ) => {
+        rpc
+          .mockResolvedValueOnce(
+            beginExisting(),
+          )
+          .mockResolvedValueOnce({
+            data: {
+              status:
+                'finalized',
+
+              payoutId,
+
+              payoutStatus:
+                providerStatus,
+            },
+
+            error:
+              null,
+          });
+
+        fetchMock.mockResolvedValueOnce(
+          providerTransfer(
+            providerStatus,
+          ),
+        );
+
+        await expect(
+          service.initiate(
+            payoutId,
+          ),
+        ).resolves.toEqual({
+          status:
+            expectedStatus,
+        });
+
+        expect(
+          fetchMock,
+        ).toHaveBeenCalledTimes(
+          1,
+        );
+
+        expect(
+          fetchMock.mock
+            .calls[0][0],
+        ).toBe(
+          `https://api.paystack.co/transfer/verify/${providerReference}`,
+        );
+
+        expect(
+          rpc,
+        ).toHaveBeenNthCalledWith(
+          2,
+          'complete_friend_transfer_payout_from_provider',
+          expect.objectContaining({
+            p_provider:
+              'paystack',
+
+            p_event_type:
+              `transfer.${providerStatus}`,
+
+            p_provider_reference:
+              providerReference,
+
+            p_provider_transfer_code:
+              'TRF_testtransfer',
+
+            p_provider_transfer_id:
+              '123456',
+
+            p_amount_minor:
+              250000,
+
+            p_currency:
+              'NGN',
+
+            p_provider_status:
+              providerStatus,
+
+            p_payload_hash:
+              expect.stringMatching(
+                /^[0-9a-f]{64}$/,
+              ),
+          }),
+        );
+      },
+    );
+
+    it('returns reconciliation required when verified terminal payout terms do not match MOVA', async () => {
+      rpc
+        .mockResolvedValueOnce(
+          beginExisting(),
+        )
+        .mockResolvedValueOnce({
+          data: {
+            status:
+              'reconciliation_required',
+
+            payoutId,
+
+            reason:
+              'amount_or_currency_mismatch',
+          },
+
+          error:
+            null,
+        });
+
+      fetchMock.mockResolvedValueOnce(
+        providerTransfer(
+          'success',
+        ),
+      );
+
+      await expect(
+        service.initiate(
+          payoutId,
+        ),
+      ).resolves.toEqual({
+        status:
+          'reconciliation_required',
+      });
+    });
+
     it('retries an existing payout with the same reference when Paystack definitively reports it missing', async () => {
       rpc
         .mockResolvedValueOnce(
