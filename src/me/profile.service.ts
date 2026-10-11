@@ -136,25 +136,92 @@ export class ProfileService {
     }
 
     if (data) {
-      return data as ProfileRow;
+      const existing =
+        data as
+          ProfileRow;
+
+      if (
+        existing.display_name ===
+          'Mova User' ||
+        !existing.avatar_url
+      ) {
+        const normalized =
+          this.profileMetadata(
+            user,
+          );
+
+        const updates: {
+          display_name?:
+            string;
+
+          avatar_url?:
+            string;
+        } = {};
+
+        if (
+          existing.display_name ===
+            'Mova User' &&
+          normalized.displayName
+        ) {
+          updates.display_name =
+            normalized.displayName;
+        }
+
+        if (
+          !existing.avatar_url &&
+          normalized.avatarUrl
+        ) {
+          updates.avatar_url =
+            normalized.avatarUrl;
+        }
+
+        if (
+          Object.keys(
+            updates,
+          ).length
+        ) {
+          const {
+            data: updated,
+            error:
+              updateError,
+          } =
+            await admin
+              .from(
+                'profiles',
+              )
+              .update(
+                updates,
+              )
+              .eq(
+                'user_id',
+                user.id,
+              )
+              .select(
+                'user_id, display_name, phone, avatar_url',
+              )
+              .single();
+
+          if (
+            !updateError &&
+            updated
+          ) {
+            return updated as
+              ProfileRow;
+          }
+        }
+      }
+
+      return existing;
     }
 
-    const metadataDisplayName:
-      unknown =
-      user.user_metadata
-        .display_name;
+    const metadata =
+      this.profileMetadata(
+        user,
+      );
 
     const fallbackDisplayName =
-      typeof metadataDisplayName ===
-        'string' &&
-      metadataDisplayName
-        .trim()
-        .length >= 2 &&
-      metadataDisplayName
-        .trim()
-        .length <= 50
-        ? metadataDisplayName.trim()
-        : 'Mova User';
+      metadata.displayName ??
+      'Mova User';
 
     /*
      * username became NOT NULL when the Friends foundation was added.
@@ -179,6 +246,12 @@ export class ProfileService {
           fallbackDisplayName,
         username:
           fallbackUsername,
+        ...(metadata.avatarUrl
+          ? {
+              avatar_url:
+                metadata.avatarUrl,
+            }
+          : {}),
       })
       .select(
         'user_id, display_name, phone, avatar_url',
@@ -217,6 +290,70 @@ export class ProfileService {
     }
 
     return created as ProfileRow;
+  }
+
+  private profileMetadata(
+    user:
+      User,
+  ) {
+    const candidates =
+      [
+        user.user_metadata
+          .display_name,
+        user.user_metadata
+          .full_name,
+        user.user_metadata
+          .name,
+      ];
+
+    const displayName =
+      candidates.find(
+        (
+          value,
+        ) =>
+          typeof value ===
+            'string' &&
+          value.trim()
+            .length >=
+            2 &&
+          value.trim()
+            .length <=
+            50,
+      );
+
+    const avatarCandidates =
+      [
+        user.user_metadata
+          .avatar_url,
+        user.user_metadata
+          .picture,
+      ];
+
+    const avatarUrl =
+      avatarCandidates.find(
+        (
+          value,
+        ) =>
+          typeof value ===
+            'string' &&
+          /^https:\/\//i.test(
+            value,
+          ),
+      );
+
+    return {
+      displayName:
+        typeof displayName ===
+          'string'
+          ? displayName.trim()
+          : undefined,
+
+      avatarUrl:
+        typeof avatarUrl ===
+          'string'
+          ? avatarUrl
+          : undefined,
+    };
   }
 
   private toUserResponse(
