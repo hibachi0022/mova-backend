@@ -23,6 +23,7 @@ import { FriendsService } from './friends/friends.service';
 import { AccountService } from './me/account.service';
 import { CredentialService } from './me/credential.service';
 import { MeController } from './me/me.controller';
+import { MoneyActivityService } from './me/money-activity.service';
 import { PaymentHistoryService } from './me/payment-history.service';
 import { PaymentMethodSetupStatusService } from './me/payment-method-setup-status.service';
 import { PaymentMethodSetupService } from './me/payment-method-setup.service';
@@ -57,6 +58,7 @@ import { TransfersService } from './transfers/transfers.service';
     ConfigModule.forRoot({
       isGlobal:
         true,
+
       envFilePath:
         '.env',
     }),
@@ -65,6 +67,7 @@ import { TransfersService } from './transfers/transfers.service';
       {
         ttl:
           60_000,
+
         limit:
           60,
       },
@@ -93,6 +96,7 @@ import { TransfersService } from './transfers/transfers.service';
     SocialService,
     PaymentRecipientsService,
     PaymentHistoryService,
+    MoneyActivityService,
     PaymentMethodsService,
     PaymentMethodSetupService,
     PaymentMethodSetupStatusService,
@@ -125,6 +129,7 @@ import { TransfersService } from './transfers/transfers.service';
     {
       provide:
         APP_GUARD,
+
       useClass:
         ThrottlerGuard,
     },

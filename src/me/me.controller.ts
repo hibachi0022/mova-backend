@@ -12,6 +12,7 @@ import {
   Patch,
   Post,
   Put,
+  Query,
   Req,
   UseGuards,
 } from '@nestjs/common';
@@ -28,6 +29,7 @@ import { CredentialChangeDto } from './dto/credential-change.dto';
 import { DeleteAccountDto } from './dto/delete-account.dto';
 import { SocialSettingsDto } from './dto/social-settings.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
+import { MoneyActivityService } from './money-activity.service';
 import { PaymentHistoryService } from './payment-history.service';
 import { PaymentMethodSetupStatusService } from './payment-method-setup-status.service';
 import { PaymentMethodSetupService } from './payment-method-setup.service';
@@ -57,6 +59,9 @@ export class MeController {
 
     private readonly paymentHistoryService:
       PaymentHistoryService,
+
+    private readonly moneyActivityService:
+      MoneyActivityService,
 
     private readonly paymentMethodsService:
       PaymentMethodsService,
@@ -116,10 +121,8 @@ export class MeController {
   )
   @Throttle({
     default: {
-      limit:
-        10,
-      ttl:
-        60_000,
+      limit: 10,
+      ttl: 60_000,
     },
   })
   updateSocialSettings(
@@ -144,10 +147,8 @@ export class MeController {
   )
   @Throttle({
     default: {
-      limit:
-        30,
-      ttl:
-        60_000,
+      limit: 30,
+      ttl: 60_000,
     },
   })
   paymentMethods(
@@ -172,10 +173,8 @@ export class MeController {
   )
   @Throttle({
     default: {
-      limit:
-        5,
-      ttl:
-        60_000,
+      limit: 5,
+      ttl: 60_000,
     },
   })
   setupPaymentMethod(
@@ -206,10 +205,8 @@ export class MeController {
   )
   @Throttle({
     default: {
-      limit:
-        30,
-      ttl:
-        60_000,
+      limit: 30,
+      ttl: 60_000,
     },
   })
   paymentMethodSetupStatus(
@@ -234,10 +231,8 @@ export class MeController {
   )
   @Throttle({
     default: {
-      limit:
-        10,
-      ttl:
-        60_000,
+      limit: 10,
+      ttl: 60_000,
     },
   })
   setDefaultPaymentMethod(
@@ -248,8 +243,7 @@ export class MeController {
     @Param(
       'id',
       new ParseUUIDPipe({
-        version:
-          '4',
+        version: '4',
       }),
     )
     paymentMethodId:
@@ -273,10 +267,8 @@ export class MeController {
   )
   @Throttle({
     default: {
-      limit:
-        10,
-      ttl:
-        60_000,
+      limit: 10,
+      ttl: 60_000,
     },
   })
   removePaymentMethod(
@@ -287,8 +279,7 @@ export class MeController {
     @Param(
       'id',
       new ParseUUIDPipe({
-        version:
-          '4',
+        version: '4',
       }),
     )
     paymentMethodId:
@@ -309,10 +300,8 @@ export class MeController {
   )
   @Throttle({
     default: {
-      limit:
-        30,
-      ttl:
-        60_000,
+      limit: 30,
+      ttl: 60_000,
     },
   })
   receivingAccounts(
@@ -337,10 +326,8 @@ export class MeController {
   )
   @Throttle({
     default: {
-      limit:
-        10,
-      ttl:
-        60_000,
+      limit: 10,
+      ttl: 60_000,
     },
   })
   saveReceivingAccount(
@@ -378,10 +365,8 @@ export class MeController {
   )
   @Throttle({
     default: {
-      limit:
-        10,
-      ttl:
-        60_000,
+      limit: 10,
+      ttl: 60_000,
     },
   })
   setDefaultReceivingAccount(
@@ -392,8 +377,7 @@ export class MeController {
     @Param(
       'id',
       new ParseUUIDPipe({
-        version:
-          '4',
+        version: '4',
       }),
     )
     receivingAccountId:
@@ -417,10 +401,8 @@ export class MeController {
   )
   @Throttle({
     default: {
-      limit:
-        10,
-      ttl:
-        60_000,
+      limit: 10,
+      ttl: 60_000,
     },
   })
   removeReceivingAccount(
@@ -431,8 +413,7 @@ export class MeController {
     @Param(
       'id',
       new ParseUUIDPipe({
-        version:
-          '4',
+        version: '4',
       }),
     )
     receivingAccountId:
@@ -456,10 +437,8 @@ export class MeController {
   )
   @Throttle({
     default: {
-      limit:
-        10,
-      ttl:
-        60_000,
+      limit: 10,
+      ttl: 60_000,
     },
   })
   resolveReceivingAccount(
@@ -477,7 +456,9 @@ export class MeController {
     );
   }
 
-  @Get('payment-recipients')
+  @Get(
+    'payment-recipients',
+  )
   @Header(
     'Cache-Control',
     'no-store',
@@ -492,17 +473,17 @@ export class MeController {
     );
   }
 
-  @Get('payment-history')
+  @Get(
+    'payment-history',
+  )
   @Header(
     'Cache-Control',
     'no-store',
   )
   @Throttle({
     default: {
-      limit:
-        30,
-      ttl:
-        60_000,
+      limit: 30,
+      ttl: 60_000,
     },
   })
   paymentHistory(
@@ -515,7 +496,88 @@ export class MeController {
     );
   }
 
-  @Post('credential-changes')
+  @Get(
+    'money-activity',
+  )
+  @Header(
+    'Cache-Control',
+    'no-store',
+  )
+  @Throttle({
+    default: {
+      limit: 30,
+      ttl: 60_000,
+    },
+  })
+  moneyActivity(
+    @Req()
+    request:
+      AuthenticatedRequest,
+
+    @Query(
+      'kind',
+    )
+    kind?:
+      string,
+
+    @Query(
+      'limit',
+    )
+    limit?:
+      string,
+
+    @Query(
+      'cursor',
+    )
+    cursor?:
+      string,
+  ) {
+    return this.moneyActivityService.list(
+      request.authUser.id,
+      {
+        kind,
+        limit,
+        cursor,
+      },
+    );
+  }
+
+  @Get(
+    'money-activity/:id',
+  )
+  @Header(
+    'Cache-Control',
+    'no-store',
+  )
+  @Throttle({
+    default: {
+      limit: 30,
+      ttl: 60_000,
+    },
+  })
+  moneyActivityTransaction(
+    @Req()
+    request:
+      AuthenticatedRequest,
+
+    @Param(
+      'id',
+      new ParseUUIDPipe({
+        version: '4',
+      }),
+    )
+    transactionId:
+      string,
+  ) {
+    return this.moneyActivityService.get(
+      request.authUser.id,
+      transactionId,
+    );
+  }
+
+  @Post(
+    'credential-changes',
+  )
   @HttpCode(
     HttpStatus.OK,
   )
@@ -525,10 +587,8 @@ export class MeController {
   )
   @Throttle({
     default: {
-      limit:
-        5,
-      ttl:
-        60_000,
+      limit: 5,
+      ttl: 60_000,
     },
   })
   changeCredentials(
@@ -556,10 +616,8 @@ export class MeController {
   )
   @Throttle({
     default: {
-      limit:
-        3,
-      ttl:
-        60_000,
+      limit: 3,
+      ttl: 60_000,
     },
   })
   deleteAccount(
