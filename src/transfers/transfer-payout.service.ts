@@ -65,12 +65,49 @@ type ProviderTransfer = {
     | 'rejected';
 };
 
+type ProviderTransferVerification =
+  | {
+      kind:
+        'found';
+
+      transfer:
+        ProviderTransfer;
+    }
+  | {
+      kind:
+        'not_found';
+    }
+  | {
+      kind:
+        'uncertain';
+    };
+
+type PayoutOwnershipRow = {
+  id:
+    string;
+
+  payment_intent_id:
+    string;
+
+  sender_user_id:
+    string;
+
+  recipient_user_id:
+    string;
+
+  status:
+    string;
+};
+
 export type TransferPayoutResult = {
   status:
     | 'processing'
     | 'verification_pending'
     | 'otp_required'
-    | 'completed';
+    | 'completed'
+    | 'failed'
+    | 'reversed'
+    | 'reconciliation_required';
 };
 
 @Injectable()
@@ -97,6 +134,129 @@ export class TransferPayoutService {
         )
         ?.trim() ??
       '';
+  }
+
+  async reconcileForUser(
+    userId:
+      string,
+
+    paymentIntentId:
+      string,
+  ): Promise<
+    TransferPayoutResult
+  > {
+    const cleanUserId =
+      this.requiredUuid(
+        userId,
+        'user',
+      );
+
+    const cleanPaymentIntentId =
+      this.requiredUuid(
+        paymentIntentId,
+        'transfer payment',
+      );
+
+    const admin =
+      this.supabase.createAdminClient();
+
+    const {
+      data,
+      error,
+    } =
+      await admin
+        .from(
+          'friend_transfer_payouts',
+        )
+        .select(
+          'id, payment_intent_id, sender_user_id, recipient_user_id, status',
+        )
+        .eq(
+          'payment_intent_id',
+          cleanPaymentIntentId,
+        )
+        .maybeSingle();
+
+    if (error) {
+      throw new ServiceUnavailableException(
+        'Unable to load the transfer payout right now.',
+      );
+    }
+
+    if (!data) {
+      throw new NotFoundException(
+        'Transfer payout not found.',
+      );
+    }
+
+    const row =
+      data as
+        PayoutOwnershipRow;
+
+    if (
+      row.payment_intent_id !==
+        cleanPaymentIntentId ||
+      (
+        row.sender_user_id !==
+          cleanUserId &&
+        row.recipient_user_id !==
+          cleanUserId
+      )
+    ) {
+      throw new NotFoundException(
+        'Transfer payout not found.',
+      );
+    }
+
+    const payoutId =
+      this.requiredUuid(
+        row.id,
+        'payout',
+      );
+
+    switch (
+      row.status
+    ) {
+      case 'success':
+        return {
+          status:
+            'completed',
+        };
+
+      case 'failed':
+      case 'blocked':
+      case 'abandoned':
+      case 'rejected':
+        return {
+          status:
+            'failed',
+        };
+
+      case 'reversed':
+        return {
+          status:
+            'reversed',
+        };
+
+      case 'reconciliation_required':
+        return {
+          status:
+            'reconciliation_required',
+        };
+
+      case 'created':
+      case 'initiating':
+      case 'pending':
+      case 'otp_required':
+        return this.initiate(
+          payoutId,
+        );
+
+      default:
+        throw new ServiceUnavailableException(
+          'Unable to determine the transfer payout state.',
+        );
+    }
   }
 
   async initiate(
@@ -250,19 +410,49 @@ export class TransferPayoutService {
   ): Promise<
     TransferPayoutResult
   > {
-    const providerTransfer =
+    const verification =
       await this.verifyProviderTransfer(
         prepared,
       );
 
     if (
-      !providerTransfer
+      verification.kind ===
+      'found'
     ) {
-      /*
-       * Still uncertain.
-       *
-       * Never submit another POST /transfer here.
-       */
+      return this.recordProviderTransfer(
+        prepared,
+        verification.transfer,
+      );
+    }
+
+    if (
+      verification.kind ===
+      'uncertain'
+    ) {
+      return {
+        status:
+          'verification_pending',
+      };
+    }
+
+    /*
+     * Paystack has definitively reported that no transfer exists for
+     * MOVA's deterministic provider reference.
+     *
+     * Retrying with the exact same reference is safe and is required
+     * for recovery. We never generate a second provider reference for
+     * the same MOVA payout.
+     */
+    this.logger.warn(
+      'Paystack reported the existing payout reference as not found; retrying the transfer with the same reference.',
+    );
+
+    const retry =
+      await this.initiateProviderTransfer(
+        prepared,
+      );
+
+    if (!retry) {
       return {
         status:
           'verification_pending',
@@ -271,7 +461,7 @@ export class TransferPayoutService {
 
     return this.recordProviderTransfer(
       prepared,
-      providerTransfer,
+      retry,
     );
   }
 
@@ -400,7 +590,7 @@ export class TransferPayoutService {
     prepared:
       PreparedPayout,
   ): Promise<
-    ProviderTransfer | null
+    ProviderTransferVerification
   > {
     const controller =
       new AbortController();
@@ -449,24 +639,48 @@ export class TransferPayoutService {
           true ||
         !body.data
       ) {
+        if (
+          this.isDefinitiveTransferNotFound(
+            response.status,
+            body?.message,
+          )
+        ) {
+          return {
+            kind:
+              'not_found',
+          };
+        }
+
         this.logger.warn(
           `Paystack payout verification did not return a confirmed transfer for HTTP ${response.status}.`,
         );
 
-        return null;
+        return {
+          kind:
+            'uncertain',
+        };
       }
 
       try {
-        return this.readProviderTransfer(
-          body.data,
-          prepared,
-        );
+        return {
+          kind:
+            'found',
+
+          transfer:
+            this.readProviderTransfer(
+              body.data,
+              prepared,
+            ),
+        };
       } catch {
         this.logger.error(
           'Paystack payout verification returned transfer details that do not match MOVA.',
         );
 
-        return null;
+        return {
+          kind:
+            'uncertain',
+        };
       }
     } catch (
       error: unknown
@@ -481,14 +695,20 @@ export class TransferPayoutService {
           'Paystack payout verification timed out.',
         );
 
-        return null;
+        return {
+          kind:
+            'uncertain',
+        };
       }
 
       this.logger.warn(
         'Unable to verify an existing Paystack payout right now.',
       );
 
-      return null;
+      return {
+        kind:
+          'uncertain',
+      };
     } finally {
       clearTimeout(
         timeout,
@@ -799,6 +1019,37 @@ export class TransferPayoutService {
 
       status,
     };
+  }
+
+  private isDefinitiveTransferNotFound(
+    status:
+      number,
+
+    message:
+      unknown,
+  ) {
+    if (
+      status !==
+        404 ||
+      typeof message !==
+        'string'
+    ) {
+      return false;
+    }
+
+    const cleaned =
+      message
+        .trim()
+        .toLowerCase();
+
+    return (
+      cleaned.includes(
+        'transfer',
+      ) &&
+      cleaned.includes(
+        'not found',
+      )
+    );
   }
 
   private parseProviderResponse(
