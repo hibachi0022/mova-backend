@@ -740,6 +740,84 @@ describe(
       );
     });
 
+    it('retries the same payout reference when Paystack returns a 400 transfer-not-found response', async () => {
+      rpc
+        .mockResolvedValueOnce(
+          beginExisting(),
+        )
+        .mockResolvedValueOnce({
+          data: {
+            status:
+              'recorded',
+
+            payoutId,
+
+            payoutStatus:
+              'pending',
+
+            providerStatus:
+              'pending',
+          },
+
+          error:
+            null,
+        });
+
+      fetchMock
+        .mockResolvedValueOnce(
+          response(
+            400,
+            {
+              status:
+                false,
+
+              message:
+                'Transfer not found',
+            },
+          ),
+        )
+        .mockResolvedValueOnce(
+          providerTransfer(
+            'pending',
+          ),
+        );
+
+      await expect(
+        service.initiate(
+          payoutId,
+        ),
+      ).resolves.toEqual({
+        status:
+          'processing',
+      });
+
+      expect(
+        fetchMock,
+      ).toHaveBeenCalledTimes(
+        2,
+      );
+
+      const retryBody =
+        JSON.parse(
+          (
+            fetchMock.mock
+              .calls[1][1] as
+              RequestInit
+          ).body as
+            string,
+        ) as
+          Record<
+            string,
+            unknown
+          >;
+
+      expect(
+        retryBody.reference,
+      ).toBe(
+        providerReference,
+      );
+    });
+
     it('does not retry when Paystack verification is uncertain', async () => {
       rpc.mockResolvedValueOnce(
         beginExisting(),
