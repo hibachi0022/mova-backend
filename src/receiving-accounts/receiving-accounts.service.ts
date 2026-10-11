@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   ServiceUnavailableException,
   UnprocessableEntityException,
 } from '@nestjs/common';
@@ -43,6 +44,15 @@ type PaystackBankResponse = {
   status?:
     boolean;
 
+  message?:
+    string;
+
+  code?:
+    string;
+
+  type?:
+    string;
+
   data?:
     unknown;
 
@@ -56,6 +66,15 @@ type PaystackResolvedAccountResponse = {
   status?:
     boolean;
 
+  message?:
+    string;
+
+  code?:
+    string;
+
+  type?:
+    string;
+
   data?: {
     account_number?:
       unknown;
@@ -68,6 +87,15 @@ type PaystackResolvedAccountResponse = {
 type PaystackTransferRecipientResponse = {
   status?:
     boolean;
+
+  message?:
+    string;
+
+  code?:
+    string;
+
+  type?:
+    string;
 
   data?: {
     active?:
@@ -134,6 +162,11 @@ type BankCache = {
 
 @Injectable()
 export class ReceivingAccountsService {
+  private readonly logger =
+    new Logger(
+      ReceivingAccountsService.name,
+    );
+
   private readonly secretKey:
     string;
 
@@ -328,6 +361,18 @@ export class ReceivingAccountsService {
           body.data,
         )
       ) {
+        this.logger.warn(
+          [
+            'Paystack bank list request failed.',
+            `http=${response.status}`,
+            `type=${this.safeLogValue(body?.type)}`,
+            `code=${this.safeLogValue(body?.code)}`,
+            `message=${this.safeLogValue(body?.message)}`,
+          ].join(
+            ' ',
+          ),
+        );
+
         throw new ServiceUnavailableException(
           'Unable to load supported banks right now.',
         );
@@ -556,6 +601,10 @@ export class ReceivingAccountsService {
       error ||
       !data
     ) {
+      this.logger.warn(
+        'Verified receiving account could not be persisted after provider verification.',
+      );
+
       throw new ServiceUnavailableException(
         'The bank account was verified but could not be prepared for saving.',
       );
@@ -617,6 +666,24 @@ export class ReceivingAccountsService {
       );
 
     if (
+      !response.ok ||
+      body?.status !==
+        true
+    ) {
+      this.logger.warn(
+        [
+          'Paystack account resolution failed.',
+          `http=${response.status}`,
+          `type=${this.safeLogValue(body?.type)}`,
+          `code=${this.safeLogValue(body?.code)}`,
+          `message=${this.safeLogValue(body?.message)}`,
+        ].join(
+          ' ',
+        ),
+      );
+    }
+
+    if (
       response.status >=
         400 &&
       response.status <
@@ -655,8 +722,12 @@ export class ReceivingAccountsService {
 
     if (
       returnedAccountNumber !==
-      accountNumber
+        accountNumber
     ) {
+      this.logger.warn(
+        'Paystack account resolution returned an unexpected account number.',
+      );
+
       throw new ServiceUnavailableException(
         'The payment provider returned an unexpected bank account.',
       );
@@ -673,6 +744,10 @@ export class ReceivingAccountsService {
       accountName.length >
         200
     ) {
+      this.logger.warn(
+        'Paystack account resolution returned an invalid account holder name.',
+      );
+
       throw new ServiceUnavailableException(
         'The verified account holder name could not be loaded safely.',
       );
@@ -744,6 +819,24 @@ export class ReceivingAccountsService {
     if (
       !response.ok ||
       body?.status !==
+        true
+    ) {
+      this.logger.warn(
+        [
+          'Paystack transfer recipient creation failed.',
+          `http=${response.status}`,
+          `type=${this.safeLogValue(body?.type)}`,
+          `code=${this.safeLogValue(body?.code)}`,
+          `message=${this.safeLogValue(body?.message)}`,
+        ].join(
+          ' ',
+        ),
+      );
+    }
+
+    if (
+      !response.ok ||
+      body?.status !==
         true ||
       !body.data
     ) {
@@ -765,6 +858,10 @@ export class ReceivingAccountsService {
       recipientCode.length >
         200
     ) {
+      this.logger.warn(
+        'Paystack transfer recipient creation returned an invalid recipient code.',
+      );
+
       throw new ServiceUnavailableException(
         'The receiving account provider returned an invalid recipient.',
       );
@@ -774,6 +871,10 @@ export class ReceivingAccountsService {
       body.data.active ===
         false
     ) {
+      this.logger.warn(
+        'Paystack transfer recipient creation returned an inactive recipient.',
+      );
+
       throw new ServiceUnavailableException(
         'The receiving account provider returned an inactive recipient.',
       );
@@ -797,6 +898,16 @@ export class ReceivingAccountsService {
       currency !==
         'NGN'
     ) {
+      this.logger.warn(
+        [
+          'Paystack transfer recipient creation returned unexpected recipient details.',
+          `type=${this.safeLogValue(type)}`,
+          `currency=${this.safeLogValue(currency)}`,
+        ].join(
+          ' ',
+        ),
+      );
+
       throw new ServiceUnavailableException(
         'The receiving account provider returned unexpected recipient details.',
       );
@@ -817,6 +928,10 @@ export class ReceivingAccountsService {
       providerAccountNumber !==
         input.accountNumber
     ) {
+      this.logger.warn(
+        'Paystack transfer recipient creation returned an unexpected account number.',
+      );
+
       throw new ServiceUnavailableException(
         'The receiving account provider returned an unexpected bank account.',
       );
@@ -833,6 +948,10 @@ export class ReceivingAccountsService {
       providerBankCode !==
         input.bankCode
     ) {
+      this.logger.warn(
+        'Paystack transfer recipient creation returned an unexpected bank code.',
+      );
+
       throw new ServiceUnavailableException(
         'The receiving account provider returned an unexpected bank.',
       );
@@ -925,6 +1044,10 @@ export class ReceivingAccountsService {
       ) <=
         Date.now()
     ) {
+      this.logger.warn(
+        'Stored receiving-account verification returned unexpected data.',
+      );
+
       throw new ServiceUnavailableException(
         'The verified receiving account could not be loaded safely.',
       );
@@ -1067,10 +1190,18 @@ export class ReceivingAccountsService {
         error.name ===
           'AbortError'
       ) {
+        this.logger.warn(
+          'Paystack banking provider request timed out.',
+        );
+
         throw new ServiceUnavailableException(
           'The banking provider request timed out.',
         );
       }
+
+      this.logger.warn(
+        'Unable to connect to the Paystack banking provider.',
+      );
 
       throw new ServiceUnavailableException(
         'The banking provider is temporarily unavailable.',
@@ -1113,6 +1244,33 @@ export class ReceivingAccountsService {
     } catch {
       return null;
     }
+  }
+
+  private safeLogValue(
+    value:
+      unknown,
+  ) {
+    if (
+      typeof value !==
+        'string'
+    ) {
+      return 'unknown';
+    }
+
+    const cleaned =
+      value
+        .replace(
+          /[\r\n\t]+/g,
+          ' ',
+        )
+        .trim()
+        .slice(
+          0,
+          300,
+        );
+
+    return cleaned ||
+      'unknown';
   }
 
   private isConfigured() {
