@@ -16,6 +16,70 @@ export class AuthService {
 
   constructor(private readonly supabase: SupabaseService) {}
 
+  async googleOAuthUrl() {
+    try {
+      const client =
+        this.supabase.createClient();
+
+      const {
+        data,
+        error,
+      } =
+        await client.auth.signInWithOAuth({
+          provider:
+            'google',
+
+          options: {
+            redirectTo:
+              'mova://auth/callback',
+
+            skipBrowserRedirect:
+              true,
+
+            queryParams: {
+              prompt:
+                'select_account',
+            },
+          },
+        });
+
+      if (
+        error ||
+        !data.url
+      ) {
+        this.logger.warn(
+          'Unable to create Google OAuth URL.',
+        );
+
+        throw new ServiceUnavailableException(
+          'Google sign-in is temporarily unavailable.',
+        );
+      }
+
+      return {
+        url:
+          data.url,
+
+        redirectTo:
+          'mova://auth/callback',
+      };
+    } catch (
+      error:
+        unknown
+    ) {
+      if (
+        error instanceof
+        HttpException
+      ) {
+        throw error;
+      }
+
+      throw new ServiceUnavailableException(
+        'Google sign-in is temporarily unavailable.',
+      );
+    }
+  }
+
   async signup(input: SignupDto): Promise<{ challengeId: string }> {
     const admin = this.supabase.createAdminClient();
     const challengeId = randomUUID();
