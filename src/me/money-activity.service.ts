@@ -5,6 +5,10 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { SupabaseService } from '../supabase/supabase.service';
+import {
+  PaymentHistoryItem,
+  PaymentHistoryService,
+} from './payment-history.service';
 
 const PAYMENT_SELECT =
   'id, sender_user_id, recipient_user_id, payment_method_id, receiving_account_id, principal_amount_minor, fee_amount_minor, charge_amount_minor, currency, status, provider, provider_reference, provider_transaction_id, provider_amount_minor, provider_requested_amount_minor, provider_channel, provider_paid_at, provider_verified_at, completed_at, failure_reason, created_at, updated_at' as const;
@@ -83,7 +87,9 @@ type ReceivingAccountRow = {
 export type MoneyTransaction = {
   id: string;
 
-  kind: 'transfer';
+  kind:
+    | 'transfer'
+    | 'payment';
 
   amountMinor: number;
 
@@ -99,13 +105,17 @@ export type MoneyTransaction = {
 
   description: string;
 
-  direction:
+  direction?:
     | 'in'
     | 'out';
 
-  receivingAccountLabel: string;
+  outingId?: string;
 
-  paymentStatus: MoneyStatus;
+  outingName?: string;
+
+  receivingAccountLabel?: string;
+
+  paymentStatus?: MoneyStatus;
 
   payoutStatus?: MoneyStatus;
 
@@ -133,6 +143,9 @@ export class MoneyActivityService {
   constructor(
     private readonly supabase:
       SupabaseService,
+
+    private readonly paymentHistory:
+      PaymentHistoryService,
   ) {}
 
   async list(
@@ -158,9 +171,21 @@ export class MoneyActivityService {
         input.cursor,
       );
 
+    const includeTransfers =
+      kind ===
+        'all' ||
+      kind ===
+        'transfer';
+
+    const includePayments =
+      kind ===
+        'all' ||
+      kind ===
+        'payment';
+
     if (
-      kind !== 'all' &&
-      kind !== 'transfer'
+      !includeTransfers &&
+      !includePayments
     ) {
       return {
         transactions: [],
@@ -169,9 +194,6 @@ export class MoneyActivityService {
       };
     }
 
-    const admin =
-      this.supabase.createAdminClient();
-
     const fetchLimit =
       Math.min(
         offset +
@@ -179,6 +201,101 @@ export class MoneyActivityService {
           1,
         500,
       );
+
+    const [
+      transferTransactions,
+      paymentHistory,
+    ] =
+      await Promise.all([
+        includeTransfers
+          ? this.listTransferTransactions(
+              userId,
+              fetchLimit,
+            )
+          : Promise.resolve<
+              MoneyTransaction[]
+            >(
+              [],
+            ),
+
+        includePayments
+          ? this.paymentHistory.list(
+              userId,
+            )
+          : Promise.resolve({
+              payments:
+                [] as
+                  PaymentHistoryItem[],
+            }),
+      ]);
+
+    const paymentTransactions =
+      paymentHistory.payments.map(
+        (
+          payment,
+        ) =>
+          this.toOutingPaymentTransaction(
+            payment,
+          ),
+      );
+
+    const ordered =
+      [
+        ...transferTransactions,
+        ...paymentTransactions,
+      ].sort(
+        (
+          a,
+          b,
+        ) =>
+          Date.parse(
+            b.createdAt,
+          ) -
+          Date.parse(
+            a.createdAt,
+          ),
+      );
+
+    const page =
+      ordered.slice(
+        offset,
+        offset +
+          limit,
+      );
+
+    const hasMore =
+      ordered.length >
+      offset +
+        limit;
+
+    return {
+      transactions:
+        page,
+
+      nextCursor:
+        hasMore
+          ? String(
+              offset +
+                limit,
+            )
+          : null,
+
+      summary:
+        [],
+    };
+  }
+
+  private async listTransferTransactions(
+    userId:
+      string,
+
+    fetchLimit:
+      number,
+  ): Promise<
+    MoneyTransaction[]
+  > {
+    const admin =
+      this.supabase.createAdminClient();
 
     const [
       outgoingResult,
@@ -252,7 +369,8 @@ export class MoneyActivityService {
         incomingResult.data ??
         []
       ),
-    ] as PaymentRow[];
+    ] as
+      PaymentRow[];
 
     const unique =
       new Map<
@@ -285,36 +403,97 @@ export class MoneyActivityService {
           ),
       );
 
-    const page =
-      ordered.slice(
-        offset,
-        offset +
-          limit,
-      );
+    return this.hydrate(
+      userId,
+      ordered,
+    );
+  }
 
-    const hasMore =
-      ordered.length >
-      offset +
-        limit;
-
-    const transactions =
-      await this.hydrate(
-        userId,
-        page,
-      );
-
+  private toOutingPaymentTransaction(
+    payment:
+      PaymentHistoryItem,
+  ): MoneyTransaction {
     return {
-      transactions,
+      id:
+        `payment:${payment.receiptId}`,
 
-      nextCursor:
-        hasMore
-          ? String(
-              offset +
-                limit,
-            )
-          : null,
+      kind:
+        'payment',
 
-      summary: [],
+      amountMinor:
+        payment.requestedAmountMinor,
+
+      currency:
+        payment.currency,
+
+      status:
+        'completed',
+
+      counterparty:
+        payment.outing.title,
+
+      createdAt:
+        payment.paidAt,
+
+      reference:
+        payment.providerReference,
+
+      description:
+        payment.isPayer
+          ? `You paid for ${payment.outing.title}.`
+          : `An outing member paid for ${payment.outing.title}.`,
+
+      direction:
+        payment.isPayer
+          ? 'out'
+          : undefined,
+
+      outingId:
+        payment.outing.id,
+
+      outingName:
+        payment.outing.title,
+
+      paymentStatus:
+        'completed',
+
+      feeMinor:
+        payment.feeAmountMinor,
+
+      totalMinor:
+        payment.chargedAmountMinor,
+
+      chargedAmountMinor:
+        payment.chargedAmountMinor,
+
+      providerFeeMinor:
+        payment.feeAmountMinor,
+
+      paymentMethodLabel:
+        payment.providerChannel
+          ? `${payment.providerChannel.toUpperCase()} · ${payment.provider.toUpperCase()}`
+          : `${payment.methodId.toUpperCase()} · ${payment.provider.toUpperCase()}`,
+
+      events: [
+        {
+          id:
+            `${payment.receiptId}:payment`,
+
+          label:
+            'Outing payment',
+
+          status:
+            'completed',
+
+          occurredAt:
+            payment.paidAt,
+
+          description:
+            payment.isPayer
+              ? `You paid for ${payment.outing.title}.`
+              : `An outing member paid for ${payment.outing.title}.`,
+        },
+      ],
     };
   }
 
