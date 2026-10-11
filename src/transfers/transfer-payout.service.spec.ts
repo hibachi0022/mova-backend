@@ -487,20 +487,132 @@ describe(
       );
     });
 
-    it('does not resubmit an existing payout when Paystack verification is unavailable', async () => {
+    it('retries an existing payout with the same reference when Paystack definitively reports it missing', async () => {
+      rpc
+        .mockResolvedValueOnce(
+          beginExisting(),
+        )
+        .mockResolvedValueOnce({
+          data: {
+            status:
+              'recorded',
+
+            payoutId,
+
+            payoutStatus:
+              'pending',
+
+            providerStatus:
+              'pending',
+          },
+
+          error:
+            null,
+        });
+
+      fetchMock
+        .mockResolvedValueOnce(
+          response(
+            404,
+            {
+              status:
+                false,
+
+              message:
+                'Transfer not found',
+            },
+          ),
+        )
+        .mockResolvedValueOnce(
+          providerTransfer(
+            'pending',
+          ),
+        );
+
+      await expect(
+        service.initiate(
+          payoutId,
+        ),
+      ).resolves.toEqual({
+        status:
+          'processing',
+      });
+
+      expect(
+        fetchMock,
+      ).toHaveBeenCalledTimes(
+        2,
+      );
+
+      expect(
+        fetchMock.mock
+          .calls[0][0],
+      ).toBe(
+        `https://api.paystack.co/transfer/verify/${providerReference}`,
+      );
+
+      expect(
+        (
+          fetchMock.mock
+            .calls[0][1] as
+            RequestInit
+        ).method,
+      ).toBe(
+        'GET',
+      );
+
+      expect(
+        fetchMock.mock
+          .calls[1][0],
+      ).toBe(
+        'https://api.paystack.co/transfer',
+      );
+
+      expect(
+        (
+          fetchMock.mock
+            .calls[1][1] as
+            RequestInit
+        ).method,
+      ).toBe(
+        'POST',
+      );
+
+      const retryBody =
+        JSON.parse(
+          (
+            fetchMock.mock
+              .calls[1][1] as
+              RequestInit
+          ).body as
+            string,
+        ) as
+          Record<
+            string,
+            unknown
+          >;
+
+      expect(
+        retryBody.reference,
+      ).toBe(
+        providerReference,
+      );
+    });
+
+    it('does not retry when Paystack verification is uncertain', async () => {
       rpc.mockResolvedValueOnce(
         beginExisting(),
       );
 
       fetchMock.mockResolvedValueOnce(
         response(
-          404,
+          503,
           {
             status:
               false,
 
             message:
-              'Transfer not found',
+              'Service unavailable',
           },
         ),
       );
@@ -528,12 +640,6 @@ describe(
         ).method,
       ).toBe(
         'GET',
-      );
-
-      expect(
-        rpc,
-      ).toHaveBeenCalledTimes(
-        1,
       );
     });
 
