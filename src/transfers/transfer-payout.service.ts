@@ -559,8 +559,23 @@ export class TransferPayoutService {
           true ||
         !body.data
       ) {
+        const providerMessage =
+          typeof body?.message ===
+            'string'
+            ? body.message
+                .trim()
+                .slice(
+                  0,
+                  200,
+                )
+            : '';
+
         this.logger.warn(
-          `Paystack payout initiation returned an uncertain HTTP ${response.status} response.`,
+          `Paystack payout initiation returned HTTP ${response.status}${
+            providerMessage
+              ? `: ${providerMessage}`
+              : '.'
+          }`,
         );
 
         return null;
@@ -1239,8 +1254,8 @@ export class TransferPayoutService {
       unknown,
   ) {
     if (
-      status !==
-        404 ||
+      status < 400 ||
+      status >= 500 ||
       typeof message !==
         'string'
     ) {
