@@ -33,6 +33,23 @@ export class AuthController {
       ProfileService,
   ) {}
 
+  @Get('oauth/google')
+  @Header(
+    'Cache-Control',
+    'no-store',
+  )
+  @Throttle({
+    default: {
+      limit:
+        10,
+      ttl:
+        60_000,
+    },
+  })
+  googleOAuthUrl() {
+    return this.authService.googleOAuthUrl();
+  }
+
   @Post('signup')
   @Header(
     'Cache-Control',
