@@ -428,8 +428,8 @@ export class TransferPayoutService {
       'found'
     ) {
       if (
-        this.isTerminalProviderStatus(
-          verification.transfer.status,
+        this.isTerminalProviderTransfer(
+          verification.transfer,
         )
       ) {
         return this.finalizeVerifiedProviderTransfer(
@@ -906,19 +906,22 @@ export class TransferPayoutService {
     }
   }
 
-  private isTerminalProviderStatus(
-    status:
-      ProviderTransfer['status'],
-  ): status is
-    | 'success'
-    | 'failed'
-    | 'reversed' {
+  private isTerminalProviderTransfer(
+    transfer:
+      ProviderTransfer,
+  ): transfer is
+    ProviderTransfer & {
+      status:
+        | 'success'
+        | 'failed'
+        | 'reversed';
+    } {
     return (
-      status ===
+      transfer.status ===
         'success' ||
-      status ===
+      transfer.status ===
         'failed' ||
-      status ===
+      transfer.status ===
         'reversed'
     );
   }
